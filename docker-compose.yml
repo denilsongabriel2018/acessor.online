@@ -1,15 +1,31 @@
-# So o servico da apps/api por enquanto. n8n e Caddy (proxy reverso/HTTPS)
-# ficam de fora deste arquivo por ora - normalmente n8n roda separado (voce
-# ja tem uma instancia hospedada) e o Caddy/proxy fica na frente disso tudo
-# na VPS, apontando os dominios pra cada servico.
+# n8n e Caddy (proxy reverso/HTTPS) ficam fora deste arquivo - voce ja tem
+# n8n hospedado separado, e o proxy costuma ficar na frente de tudo na VPS.
+#
+# Pensado pra rodar tanto via `docker compose` (le um .env local igual
+# sempre) quanto via Portainer (Stacks a partir do repositorio git): como o
+# .env NAO vai junto no git de proposito, as variaveis abaixo usam
+# ${VAR} - o Portainer te deixa cadastrar cada uma na tela de criacao da
+# stack, preenchendo a mesma coisa que um .env local faria pro `docker
+# compose` na linha de comando.
 services:
   api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
-    env_file:
-      - .env
+    environment:
+      PORT: "3000"
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-supabase}
+      DEFAULT_WORKSPACE_ID: ${DEFAULT_WORKSPACE_ID}
+      CORS_ORIGIN: ${CORS_ORIGIN}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      N8N_TO_API_SECRET: ${N8N_TO_API_SECRET}
+      API_TO_N8N_SECRET: ${API_TO_N8N_SECRET}
+      N8N_NOTIFICATION_WEBHOOK_URL: ${N8N_NOTIFICATION_WEBHOOK_URL}
+      APP_TIMEZONE: ${APP_TIMEZONE:-America/Sao_Paulo}
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
+      SCHEDULER_INTERVAL_SECONDS: ${SCHEDULER_INTERVAL_SECONDS:-60}
     ports:
       - "${PORT:-3000}:3000"
     healthcheck:
@@ -18,3 +34,17 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL}
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-8080}:80"
