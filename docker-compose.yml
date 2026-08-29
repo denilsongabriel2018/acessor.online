@@ -1,18 +1,14 @@
-# n8n fica fora deste arquivo (voce ja tem instancia hospedada separada).
-# Roteamento externo e feito pelo Traefik, ja rodando na VPS - por isso os
-# dois servicos entram na rede "principal" (a mesma rede do Traefik) e
-# ganham labels em vez de depender so do mapeamento de porta.
+# Modo Swarm (Portainer Stack) NAO suporta "build:" - o stack so roda uma
+# imagem ja pronta. Por isso aqui e so "image:" - as imagens precisam ser
+# construidas manualmente ANTES de dar deploy/update na stack (veja
+# instrucoes no final deste arquivo).
 #
-# Pensado pra rodar tanto via `docker compose` (le um .env local) quanto via
-# Portainer (Stacks a partir do repositorio git): como o .env NAO vai junto
-# no git de proposito, as variaveis abaixo usam ${VAR} - o Portainer te
-# deixa cadastrar cada uma na tela de criacao da stack.
+# Labels do Traefik ficam dentro de "deploy:" (nao soltas no servico) porque
+# o provider e --providers.swarm=true - ele le labels do SERVICO do Swarm,
+# nao do container.
 services:
   api:
-    build:
-      context: .
-      dockerfile: apps/api/Dockerfile
-    restart: unless-stopped
+    image: acessor-api:latest
     environment:
       PORT: "3000"
       STORAGE_DRIVER: ${STORAGE_DRIVER:-supabase}
@@ -26,8 +22,6 @@ services:
       APP_TIMEZONE: ${APP_TIMEZONE:-America/Sao_Paulo}
       SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
       SCHEDULER_INTERVAL_SECONDS: ${SCHEDULER_INTERVAL_SECONDS:-60}
-    # Mantido como plano B pra acessar direto por IP:porta enquanto testamos
-    # se o Traefik pega certinho - pode tirar depois que confirmar.
     ports:
       - "${PORT:-3000}:3000"
     healthcheck:
@@ -38,37 +32,51 @@ services:
       start_period: 10s
     networks:
       - principal
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=principal"
-      - "traefik.http.routers.agenda-api.rule=Host(`agenda-api.assessoriatrafegando.com.br`)"
-      - "traefik.http.routers.agenda-api.entrypoints=websecure"
-      - "traefik.http.routers.agenda-api.tls.certresolver=letsencryptresolver"
-      - "traefik.http.services.agenda-api.loadbalancer.server.port=3000"
+    deploy:
+      restart_policy:
+        condition: any
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=principal"
+        - "traefik.http.routers.agenda-api.rule=Host(`agenda-api.assessoriatrafegando.com.br`)"
+        - "traefik.http.routers.agenda-api.entrypoints=websecure"
+        - "traefik.http.routers.agenda-api.tls.certresolver=letsencryptresolver"
+        - "traefik.http.services.agenda-api.loadbalancer.server.port=3000"
 
   web:
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
-      args:
-        VITE_API_URL: ${VITE_API_URL}
-        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
-        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
-    restart: unless-stopped
-    depends_on:
-      - api
+    image: acessor-web:latest
     ports:
       - "${WEB_PORT:-8080}:80"
     networks:
       - principal
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=principal"
-      - "traefik.http.routers.agenda-web.rule=Host(`agenda.assessoriatrafegando.com.br`)"
-      - "traefik.http.routers.agenda-web.entrypoints=websecure"
-      - "traefik.http.routers.agenda-web.tls.certresolver=letsencryptresolver"
-      - "traefik.http.services.agenda-web.loadbalancer.server.port=80"
+    deploy:
+      restart_policy:
+        condition: any
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=principal"
+        - "traefik.http.routers.agenda-web.rule=Host(`agenda.assessoriatrafegando.com.br`)"
+        - "traefik.http.routers.agenda-web.entrypoints=websecure"
+        - "traefik.http.routers.agenda-web.tls.certresolver=letsencryptresolver"
+        - "traefik.http.services.agenda-web.loadbalancer.server.port=80"
 
 networks:
   principal:
     external: true
+
+# ---------------------------------------------------------------------
+# Como construir as imagens (rodar no servidor, via SSH, ANTES do deploy
+# da stack e de novo toda vez que o codigo mudar):
+#
+#   git clone https://github.com/denilsongabriel2018/acessor.online.git
+#   cd acessor.online
+#   docker build -t acessor-api:latest -f apps/api/Dockerfile .
+#   docker build -t acessor-web:latest -f apps/web/Dockerfile \
+#     --build-arg VITE_API_URL=https://agenda-api.assessoriatrafegando.com.br \
+#     --build-arg VITE_SUPABASE_URL=<sua SUPABASE_URL> \
+#     --build-arg VITE_SUPABASE_ANON_KEY=<sua SUPABASE_ANON_KEY> \
+#     .
+#
+# So depois disso a stack do Portainer acha as imagens "acessor-api:latest"
+# e "acessor-web:latest" pra rodar.
+# ---------------------------------------------------------------------
