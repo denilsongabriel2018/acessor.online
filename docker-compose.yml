@@ -43,7 +43,7 @@ services:
       - "traefik.docker.network=principal"
       - "traefik.http.routers.agenda-api.rule=Host(`agenda-api.assessoriatrafegando.com.br`)"
       - "traefik.http.routers.agenda-api.entrypoints=websecure"
-      - "traefik.http.routers.agenda-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.agenda-api.tls.certresolver=letsencryptresolver"
       - "traefik.http.services.agenda-api.loadbalancer.server.port=3000"
 
   web:
@@ -66,7 +66,7 @@ services:
       - "traefik.docker.network=principal"
       - "traefik.http.routers.agenda-web.rule=Host(`agenda.assessoriatrafegando.com.br`)"
       - "traefik.http.routers.agenda-web.entrypoints=websecure"
-      - "traefik.http.routers.agenda-web.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.agenda-web.tls.certresolver=letsencryptresolver"
       - "traefik.http.services.agenda-web.loadbalancer.server.port=80"
 
 networks:
