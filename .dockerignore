@@ -1,0 +1,10 @@
+node_modules
+**/node_modules
+**/dist
+.env
+.env.*
+.git
+.mcp.json
+n8n
+docs
+*.md

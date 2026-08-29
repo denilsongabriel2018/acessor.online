@@ -1,0 +1,321 @@
+{
+  "name": "WhatsApp - Agente IA (Tasks e Agenda)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-mensagem",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "a1a10000-0000-4000-8000-000000000001",
+      "name": "Webhook WhatsApp",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-140, 300],
+      "webhookId": "b2b10000-0000-4000-8000-000000000001",
+      "notes": "Aponte sua integracao de WhatsApp para este webhook (POST). Corpo esperado: { \"phone\": \"...\", \"message\": \"...\", \"userExternalId\": \"...\" (opcional) }. Se seu provedor manda campos com outros nomes, ajuste so o proximo node (Normalizar entrada)."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c1c10000-0000-4000-8000-000000000001",
+              "name": "mensagem",
+              "type": "string",
+              "value": "={{ $json.body?.message || $json.body?.mensagem || $json.message || '' }}"
+            },
+            {
+              "id": "c1c10000-0000-4000-8000-000000000002",
+              "name": "telefone",
+              "type": "string",
+              "value": "={{ $json.body?.phone || $json.body?.telefone || $json.phone || '' }}"
+            },
+            {
+              "id": "c1c10000-0000-4000-8000-000000000003",
+              "name": "userExternalId",
+              "type": "string",
+              "value": "={{ $json.body?.userExternalId || $json.body?.phone || $json.phone || '' }}"
+            },
+            {
+              "id": "c1c10000-0000-4000-8000-000000000004",
+              "name": "apiUrl",
+              "type": "string",
+              "value": "={{ $env.API_URL || 'http://localhost:3000' }}"
+            },
+            {
+              "id": "c1c10000-0000-4000-8000-000000000005",
+              "name": "agoraUtc",
+              "type": "string",
+              "value": "={{ $now.toUTC().toISO() }}"
+            },
+            {
+              "id": "c1c10000-0000-4000-8000-000000000006",
+              "name": "systemPromptInterpretar",
+              "type": "string",
+              "value": "Voce e o motor de interpretacao de um assistente de tarefas e agenda usado via WhatsApp. Sua unica saida deve ser um JSON valido, sem markdown, sem texto fora do JSON. O fuso do usuario e America/Sao_Paulo (UTC-3). Toda data que voce devolver deve estar em UTC terminando em Z (ex: 2026-08-30T13:00:00.000Z) - some 3 horas ao converter horario local para UTC. Voce vai receber a data/hora atual em UTC para usar como referencia de 'hoje', 'amanha' etc.\n\nEscolha exatamente um dos formatos abaixo:\n\n1) Criar tarefa:\n{\"intent\":\"create_task\",\"payload\":{\"title\":string,\"description\":string ou null,\"dueAt\":string ISO8601 em UTC ou null,\"priority\":numero de 1 a 5 (1 = mais urgente, use 3 se nao disser),\"originalMessage\":string com a mensagem original}}\n\n2) Criar evento:\n{\"intent\":\"create_event\",\"payload\":{\"title\":string,\"startsAt\":ISO8601 UTC,\"endsAt\":ISO8601 UTC,\"location\":string ou null,\"originalMessage\":string}}\n\n3) Concluir tarefa(s) por numero (o usuario cita o numero da tarefa, ex '#12' ou 'tarefa 12'):\n{\"intent\":\"complete_task\",\"task_numbers\":[numero,...]}\n\n4) Listar/consultar itens de um periodo:\n{\"intent\":\"list_items\",\"filters\":{\"type\":\"all\" ou \"task\" ou \"event\",\"status\":string ou null,\"priority\":numero ou null,\"period\":\"hoje\" ou \"amanha\" ou \"essa_semana\" ou \"proximos_7_dias\" ou \"esse_mes\" ou \"personalizado\",\"period_start\":ISO8601 UTC (preencha SO se period for \\\"personalizado\\\", senao deixe null),\"period_end\":ISO8601 UTC (preencha SO se period for \\\"personalizado\\\", senao deixe null),\"q\":string ou null}}\nPrefira sempre um dos labels prontos (hoje/amanha/essa_semana/proximos_7_dias/esse_mes) em vez de calcular datas na mao - o calculo exato e feito por codigo depois, voce so escolhe o label certo pelo que o usuario pediu. So use \\\"personalizado\\\" com period_start/period_end quando o usuario der um intervalo especifico (ex: 'entre 10/09 e 20/09').\n\n5) Quando nao entender a mensagem ou a acao pedida nao estiver na lista acima (ex: reagendar, cancelar, mudar politica de aviso, pedir resumo do dia - ainda nao implementados):\n{\"intent\":\"unknown\",\"reason\":\"frase curta explicando o que faltou entender ou por que ainda nao da pra fazer isso\"}\n\nRegras gerais: nunca invente um intent fora da lista. Se faltar informacao essencial (ex: titulo da tarefa), use intent unknown pedindo o que falta. Responda apenas com o JSON, nada mais."
+            },
+            {
+              "id": "c1c10000-0000-4000-8000-000000000007",
+              "name": "systemPromptResposta",
+              "type": "string",
+              "value": "Voce escreve um resumo curto (no maximo 4 a 5 linhas) para o usuario, em portugues do Brasil, tom cordial e informal, no maximo 1 emoji, sem markdown, sem mostrar JSON bruto. Voce so e chamado quando a lista de tarefas/eventos retornada pela API e longa - resuma os itens mais relevantes de forma legivel, pode omitir os menos importantes, mas diga quantos itens existem no total. Responda somente com o texto final."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1a10000-0000-4000-8000-000000000002",
+      "name": "Normalizar entrada",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [80, 300],
+      "notes": "Se o payload do seu provedor de WhatsApp usar outros nomes de campo, ajuste so as 3 primeiras expressoes aqui (mensagem, telefone, userExternalId)."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.OPENAI_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"gpt-4o-mini\", response_format: { type: \"json_object\" }, temperature: 0.2, messages: [ { role: \"system\", content: $json.systemPromptInterpretar }, { role: \"user\", content: \"Agora em UTC: \" + $json.agoraUtc + \"\\nMensagem do usuario: \" + $json.mensagem } ] }) }}",
+        "options": {}
+      },
+      "id": "a1a10000-0000-4000-8000-000000000003",
+      "name": "OpenAI - interpretar pedido",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [300, 300],
+      "continueOnFail": true,
+      "onError": "continueRegularOutput",
+      "notes": "Chama a Chat Completions API da OpenAI direto por HTTP (nao depende do node OpenAI do n8n, que muda de versao pra versao). Precisa de OPENAI_API_KEY nas variaveis de ambiente do n8n. Continua em caso de falha (vira 'unknown' no proximo node) em vez de derrubar a execucao inteira."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "const entrada = $('Normalizar entrada').item.json;\nconst raw = $json.choices?.[0]?.message?.content || '{}';\n\nlet parsed;\ntry {\n  parsed = JSON.parse(raw);\n} catch (e) {\n  parsed = { intent: 'unknown', reason: 'Nao consegui entender essa mensagem, pode reformular?' };\n}\n\nconst supportedIntents = ['create_task', 'create_event', 'complete_task', 'list_items'];\nconst supported = supportedIntents.includes(parsed.intent);\n\n// Resolve labels de periodo (hoje/amanha/essa_semana/proximos_7_dias/esse_mes) em codigo\n// deterministico, em vez de pedir pra IA calcular data exata - mais barato (menos coisa\n// pra IA acertar) e mais confiavel (sem risco de conta de fuso horario errada).\n// America/Sao_Paulo nao tem mais horario de verao, entao UTC-3 fixo e seguro.\nfunction resolvePeriodo(label, agoraUtcIso, customStart, customEnd) {\n  const OFFSET_MS = 3 * 60 * 60 * 1000;\n  const agoraLocal = new Date(new Date(agoraUtcIso).getTime() - OFFSET_MS);\n\n  function localMidnight(addDays) {\n    return new Date(Date.UTC(agoraLocal.getUTCFullYear(), agoraLocal.getUTCMonth(), agoraLocal.getUTCDate() + addDays, 0, 0, 0, 0));\n  }\n  function toUtcIso(localDate) {\n    return new Date(localDate.getTime() + OFFSET_MS).toISOString();\n  }\n\n  if (label === 'personalizado' && customStart && customEnd) {\n    return { period_start: customStart, period_end: customEnd };\n  }\n\n  let start, end;\n  if (label === 'hoje') {\n    start = localMidnight(0);\n    end = localMidnight(1);\n  } else if (label === 'amanha') {\n    start = localMidnight(1);\n    end = localMidnight(2);\n  } else if (label === 'essa_semana') {\n    const dow = agoraLocal.getUTCDay();\n    start = localMidnight(-dow);\n    end = localMidnight(7 - dow);\n  } else if (label === 'esse_mes') {\n    start = new Date(Date.UTC(agoraLocal.getUTCFullYear(), agoraLocal.getUTCMonth(), 1, 0, 0, 0, 0));\n    end = new Date(Date.UTC(agoraLocal.getUTCFullYear(), agoraLocal.getUTCMonth() + 1, 1, 0, 0, 0, 0));\n  } else {\n    // proximos_7_dias e qualquer label desconhecido caem aqui como padrao seguro\n    start = localMidnight(0);\n    end = localMidnight(7);\n  }\n\n  return { period_start: toUtcIso(start), period_end: toUtcIso(end) };\n}\n\nlet commandBody = null;\nif (parsed.intent === 'create_task') commandBody = { intent: 'create_task', payload: { ...parsed.payload, source: 'n8n' } };\nif (parsed.intent === 'create_event') commandBody = { intent: 'create_event', payload: { ...parsed.payload, source: 'n8n' } };\nif (parsed.intent === 'complete_task') commandBody = { intent: 'complete_task', task_numbers: parsed.task_numbers };\nif (parsed.intent === 'list_items') {\n  const f = parsed.filters || {};\n  const periodo = resolvePeriodo(f.period, entrada.agoraUtc, f.period_start, f.period_end);\n  commandBody = {\n    intent: 'list_items',\n    filters: {\n      type: f.type || 'all',\n      status: f.status || undefined,\n      priority: f.priority || undefined,\n      period_start: periodo.period_start,\n      period_end: periodo.period_end,\n      q: f.q || undefined\n    }\n  };\n}\n\nreturn {\n  json: {\n    ...entrada,\n    intent: parsed.intent,\n    reason: parsed.reason || null,\n    commandBody,\n    supported: supported ? 'yes' : 'no'\n  }\n};"
+      },
+      "id": "a1a10000-0000-4000-8000-000000000004",
+      "name": "Parsear intent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "d1d10000-0000-4000-8000-000000000001",
+              "leftValue": "={{ $json.supported }}",
+              "rightValue": "yes",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1a10000-0000-4000-8000-000000000005",
+      "name": "Intent suportada?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [740, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.apiUrl }}/api/commands",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "x-n8n-to-api-secret", "value": "={{ $env.N8N_TO_API_SECRET }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.commandBody }}",
+        "options": {}
+      },
+      "id": "a1a10000-0000-4000-8000-000000000006",
+      "name": "API - executar comando",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 200],
+      "continueOnFail": true,
+      "onError": "continueRegularOutput",
+      "notes": "N8N_TO_API_SECRET precisa ser identico ao valor configurado na API (.env da apps/api). API_URL deve apontar para onde a API estiver rodando. Continua em caso de erro (400/500) em vez de derrubar a execucao - o node seguinte trata isso."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "const entrada = $('Normalizar entrada').item.json;\nconst api = $json;\n\nfunction formatDateBr(iso) {\n  if (!iso) return null;\n  try {\n    return new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });\n  } catch (e) {\n    return iso;\n  }\n}\n\nfunction respostaSimples(reply) {\n  return { json: { telefone: entrada.telefone, userExternalId: entrada.userExternalId, reply, precisaIA: 'no' } };\n}\n\n// Resposta simples e deterministica (sem custo de IA) pra tudo que da pra descrever\n// direto a partir do JSON da API. So listas longas caem numa chamada de IA depois.\nif (!api.ok) {\n  const msg = api.errors?.[0]?.message || 'nao consegui completar essa acao agora';\n  return respostaSimples(`Deu ruim aqui: ${msg}. Pode tentar de novo?`);\n}\n\nif (api.intent === 'create_task') {\n  const t = api.data.task;\n  const prazo = formatDateBr(t.dueAt);\n  return respostaSimples(`Tarefa #${t.number} criada: \"${t.title}\"${prazo ? ` (prazo ${prazo})` : ''}.`);\n}\n\nif (api.intent === 'create_event') {\n  const e = api.data.event;\n  return respostaSimples(`Evento criado: \"${e.title}\", de ${formatDateBr(e.startsAt)} ate ${formatDateBr(e.endsAt)}.`);\n}\n\nif (api.intent === 'complete_task') {\n  const completed = api.data.completed || [];\n  const notFound = api.data.notFound || [];\n  const partes = [];\n  if (completed.length) partes.push(`Concluida${completed.length > 1 ? 's' : ''}: ${completed.map((t) => '#' + t.number).join(', ')}.`);\n  if (notFound.length) partes.push(`Nao achei: ${notFound.map((n) => '#' + n).join(', ')}.`);\n  return respostaSimples(partes.join(' ') || 'Nada pra concluir.');\n}\n\nif (api.intent === 'list_items') {\n  const items = api.data.items || [];\n  if (items.length === 0) {\n    return respostaSimples('Nada encontrado nesse periodo.');\n  }\n  if (items.length <= 3) {\n    const linhas = items.map((item) => item.itemType === 'task'\n      ? `#${item.number} ${item.title} (${formatDateBr(item.dueAt) || 'sem prazo'})`\n      : `${item.title} (${formatDateBr(item.startsAt)})`);\n    return respostaSimples(linhas.join('\\n'));\n  }\n  // Lista longa: vale gastar 1 chamada de IA pra resumir de forma legivel.\n  return { json: { ...entrada, apiResultado: JSON.stringify(api), precisaIA: 'yes' } };\n}\n\nreturn respostaSimples('Feito.');"
+      },
+      "id": "a1a10000-0000-4000-8000-00000000000b",
+      "name": "Preparar resposta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1180, 200],
+      "notes": "Aqui mora a otimizacao de custo: cria tarefa, cria evento, conclui tarefa e listas curtas (ate 3 itens) viram texto direto, sem gastar IA. So lista longa (mais de 3 itens) segue pra uma chamada de IA pra resumir."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "d1d10000-0000-4000-8000-000000000002",
+              "leftValue": "={{ $json.precisaIA }}",
+              "rightValue": "yes",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1a10000-0000-4000-8000-00000000000c",
+      "name": "Precisa de IA pra resumir?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1400, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.OPENAI_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"gpt-4o-mini\", temperature: 0.4, messages: [ { role: \"system\", content: $json.systemPromptResposta }, { role: \"user\", content: \"Mensagem original do usuario: \" + $json.mensagem + \"\\n\\nResultado da API (JSON): \" + $json.apiResultado } ] }) }}",
+        "options": {}
+      },
+      "id": "a1a10000-0000-4000-8000-000000000007",
+      "name": "OpenAI - resumir lista",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1620, 120],
+      "continueOnFail": true,
+      "onError": "continueRegularOutput",
+      "notes": "So roda quando a listagem tem mais de 3 itens - unico caso onde vale gastar uma 2a chamada de IA."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "const entrada = $('Preparar resposta').item.json;\nconst raw = $json.choices?.[0]?.message?.content || 'Encontrei varios itens nesse periodo, mas nao consegui resumir agora.';\n\nreturn {\n  json: {\n    telefone: entrada.telefone,\n    userExternalId: entrada.userExternalId,\n    reply: raw.trim()\n  }\n};"
+      },
+      "id": "a1a10000-0000-4000-8000-000000000008",
+      "name": "Extrair texto final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1840, 120]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e1e10000-0000-4000-8000-000000000001",
+              "name": "telefone",
+              "type": "string",
+              "value": "={{ $('Normalizar entrada').item.json.telefone }}"
+            },
+            {
+              "id": "e1e10000-0000-4000-8000-000000000002",
+              "name": "userExternalId",
+              "type": "string",
+              "value": "={{ $('Normalizar entrada').item.json.userExternalId }}"
+            },
+            {
+              "id": "e1e10000-0000-4000-8000-000000000003",
+              "name": "reply",
+              "type": "string",
+              "value": "={{ 'Ainda nao consigo fazer isso por aqui. ' + ($json.reason || 'Pode tentar explicar de outro jeito?') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1a10000-0000-4000-8000-000000000009",
+      "name": "Resposta - nao suportado",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [960, 460]
+    },
+    {
+      "parameters": {},
+      "id": "a1a10000-0000-4000-8000-00000000000a",
+      "name": "Saida - conectar WhatsApp aqui",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2060, 300],
+      "notes": "Ponto final do fluxo: chega aqui { telefone, userExternalId, reply }. Troque este node pelo seu node de envio de WhatsApp (Evolution API, WhatsApp Cloud API, etc), usando 'reply' como texto e 'telefone'/'userExternalId' como destinatario."
+    }
+  ],
+  "connections": {
+    "Webhook WhatsApp": {
+      "main": [[{ "node": "Normalizar entrada", "type": "main", "index": 0 }]]
+    },
+    "Normalizar entrada": {
+      "main": [[{ "node": "OpenAI - interpretar pedido", "type": "main", "index": 0 }]]
+    },
+    "OpenAI - interpretar pedido": {
+      "main": [[{ "node": "Parsear intent", "type": "main", "index": 0 }]]
+    },
+    "Parsear intent": {
+      "main": [[{ "node": "Intent suportada?", "type": "main", "index": 0 }]]
+    },
+    "Intent suportada?": {
+      "main": [
+        [{ "node": "API - executar comando", "type": "main", "index": 0 }],
+        [{ "node": "Resposta - nao suportado", "type": "main", "index": 0 }]
+      ]
+    },
+    "API - executar comando": {
+      "main": [[{ "node": "Preparar resposta", "type": "main", "index": 0 }]]
+    },
+    "Preparar resposta": {
+      "main": [[{ "node": "Precisa de IA pra resumir?", "type": "main", "index": 0 }]]
+    },
+    "Precisa de IA pra resumir?": {
+      "main": [
+        [{ "node": "OpenAI - resumir lista", "type": "main", "index": 0 }],
+        [{ "node": "Saida - conectar WhatsApp aqui", "type": "main", "index": 0 }]
+      ]
+    },
+    "OpenAI - resumir lista": {
+      "main": [[{ "node": "Extrair texto final", "type": "main", "index": 0 }]]
+    },
+    "Extrair texto final": {
+      "main": [[{ "node": "Saida - conectar WhatsApp aqui", "type": "main", "index": 0 }]]
+    },
+    "Resposta - nao suportado": {
+      "main": [[{ "node": "Saida - conectar WhatsApp aqui", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

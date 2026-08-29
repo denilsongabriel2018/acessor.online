@@ -1,0 +1,20 @@
+# So o servico da apps/api por enquanto. n8n e Caddy (proxy reverso/HTTPS)
+# ficam de fora deste arquivo por ora - normalmente n8n roda separado (voce
+# ja tem uma instancia hospedada) e o Caddy/proxy fica na frente disso tudo
+# na VPS, apontando os dominios pra cada servico.
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
