@@ -2,7 +2,7 @@
 # resultado (dist/ + node_modules) no estagio final - imagem final menor,
 # sem o compilador TypeScript nem os fontes .ts dentro dela.
 
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 
 # So os package.json primeiro (cache de layer: so reinstala se dependencia mudou,
@@ -16,7 +16,7 @@ RUN npm ci
 COPY apps/api apps/api
 RUN npm run build --workspace apps/api
 
-FROM node:20-alpine
+FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 

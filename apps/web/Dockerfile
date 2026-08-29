@@ -1,7 +1,7 @@
 # As variaveis VITE_* sao "assadas" dentro do JS no momento do build (nao dao
 # pra trocar depois, em runtime, como as da apps/api) - por isso entram como
 # build ARG aqui, nao como env do container final.
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json ./
