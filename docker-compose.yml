@@ -1,12 +1,12 @@
-# n8n e Caddy (proxy reverso/HTTPS) ficam fora deste arquivo - voce ja tem
-# n8n hospedado separado, e o proxy costuma ficar na frente de tudo na VPS.
+# n8n fica fora deste arquivo (voce ja tem instancia hospedada separada).
+# Roteamento externo e feito pelo Traefik, ja rodando na VPS - por isso os
+# dois servicos entram na rede "principal" (a mesma rede do Traefik) e
+# ganham labels em vez de depender so do mapeamento de porta.
 #
-# Pensado pra rodar tanto via `docker compose` (le um .env local igual
-# sempre) quanto via Portainer (Stacks a partir do repositorio git): como o
-# .env NAO vai junto no git de proposito, as variaveis abaixo usam
-# ${VAR} - o Portainer te deixa cadastrar cada uma na tela de criacao da
-# stack, preenchendo a mesma coisa que um .env local faria pro `docker
-# compose` na linha de comando.
+# Pensado pra rodar tanto via `docker compose` (le um .env local) quanto via
+# Portainer (Stacks a partir do repositorio git): como o .env NAO vai junto
+# no git de proposito, as variaveis abaixo usam ${VAR} - o Portainer te
+# deixa cadastrar cada uma na tela de criacao da stack.
 services:
   api:
     build:
@@ -26,6 +26,8 @@ services:
       APP_TIMEZONE: ${APP_TIMEZONE:-America/Sao_Paulo}
       SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
       SCHEDULER_INTERVAL_SECONDS: ${SCHEDULER_INTERVAL_SECONDS:-60}
+    # Mantido como plano B pra acessar direto por IP:porta enquanto testamos
+    # se o Traefik pega certinho - pode tirar depois que confirmar.
     ports:
       - "${PORT:-3000}:3000"
     healthcheck:
@@ -34,6 +36,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    networks:
+      - principal
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=principal"
+      - "traefik.http.routers.agenda-api.rule=Host(`agenda-api.assessoriatrafegando.com.br`)"
+      - "traefik.http.routers.agenda-api.entrypoints=websecure"
+      - "traefik.http.routers.agenda-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.agenda-api.loadbalancer.server.port=3000"
 
   web:
     build:
@@ -48,3 +59,16 @@ services:
       - api
     ports:
       - "${WEB_PORT:-8080}:80"
+    networks:
+      - principal
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=principal"
+      - "traefik.http.routers.agenda-web.rule=Host(`agenda.assessoriatrafegando.com.br`)"
+      - "traefik.http.routers.agenda-web.entrypoints=websecure"
+      - "traefik.http.routers.agenda-web.tls.certresolver=letsencrypt"
+      - "traefik.http.services.agenda-web.loadbalancer.server.port=80"
+
+networks:
+  principal:
+    external: true
