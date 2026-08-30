@@ -133,12 +133,12 @@ export const commandSchema = z.discriminatedUnion("intent", [
   z.object({
     intent: z.literal("get_item"),
     item_type: z.enum(["task", "event"]),
-    number: z.number().int().positive()
+    number: z.coerce.number().int().positive()
   }),
   z.object({
     intent: z.literal("update_item"),
     item_type: z.enum(["task", "event"]),
-    number: z.number().int().positive(),
+    number: z.coerce.number().int().positive(),
     // Campos soltos de tarefa e evento juntos (nao usa updateTaskSchema/
     // updateEventSchema aqui de proposito): a IA manda string vazia pra "nao
     // mudei esse campo", e o server.ts filtra isso e escolhe os campos certos
