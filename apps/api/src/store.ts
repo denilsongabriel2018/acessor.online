@@ -31,6 +31,7 @@ const memoryNotificationPolicies: NotificationPolicy[] = [
   {
     id: "mem-policy-leve",
     name: "Leve",
+    description: "Poucos avisos: 1h e 10min antes do prazo; se passar, avisa 1h depois e insiste a cada 24h ate voce concluir.",
     isDefault: false,
     rules: [
       { id: "mem-rule-1", policyId: "mem-policy-leve", kind: "before_due", offsetMinutes: -60, enabled: true },
@@ -49,6 +50,7 @@ const memoryNotificationPolicies: NotificationPolicy[] = [
   {
     id: "mem-policy-normal",
     name: "Normal",
+    description: "Equilibrio: avisa 3h, 1h e 30min antes do prazo; se passar, avisa 1h e 3h depois e insiste a cada 12h ate concluir; tambem manda um resumo diario as 8h30.",
     isDefault: true,
     rules: [
       { id: "mem-rule-5", policyId: "mem-policy-normal", kind: "before_due", offsetMinutes: -180, enabled: true },
@@ -70,6 +72,7 @@ const memoryNotificationPolicies: NotificationPolicy[] = [
   {
     id: "mem-policy-intenso",
     name: "Intenso",
+    description: "Maxima insistencia: avisa 10h, 3h, 1h, 30min, 5min e 1min antes do prazo; se passar, avisa 1h e 3h depois e insiste a cada 6h ate voce concluir.",
     isDefault: false,
     rules: [
       { id: "mem-rule-12", policyId: "mem-policy-intenso", kind: "before_due", offsetMinutes: -600, enabled: true },
@@ -166,7 +169,7 @@ export const store = {
     return task;
   },
 
-  async updateTaskById(id: string, patch: Partial<Pick<Task, "title" | "description" | "dueAt" | "priority">>) {
+  async updateTaskById(id: string, patch: Partial<Pick<Task, "title" | "description" | "dueAt" | "priority" | "notificationPolicyId">>) {
     if (config.storageDriver === "supabase") {
       return supabaseStore.updateTaskById(id, patch);
     }
@@ -174,7 +177,7 @@ export const store = {
     const task = tasks.find((item) => item.id === id && item.status !== "cancelled");
     if (!task) return undefined;
     Object.assign(task, patch, { updatedAt: nowIso() });
-    if (patch.dueAt !== undefined) {
+    if (patch.dueAt !== undefined || patch.notificationPolicyId !== undefined) {
       await store.clearPendingNotifications("task", task.id);
       await store.scheduleNotificationsForItem("task", task.id, task.dueAt, task.notificationPolicyId);
     }
@@ -208,7 +211,7 @@ export const store = {
 
   async updateEventById(
     id: string,
-    patch: Partial<Pick<CalendarEvent, "title" | "description" | "startsAt" | "endsAt" | "location">>
+    patch: Partial<Pick<CalendarEvent, "title" | "description" | "startsAt" | "endsAt" | "location" | "notificationPolicyId">>
   ) {
     if (config.storageDriver === "supabase") {
       return supabaseStore.updateEventById(id, patch);
@@ -217,7 +220,7 @@ export const store = {
     const event = events.find((item) => item.id === id && item.status !== "cancelled");
     if (!event) return undefined;
     Object.assign(event, patch, { updatedAt: nowIso() });
-    if (patch.startsAt !== undefined) {
+    if (patch.startsAt !== undefined || patch.notificationPolicyId !== undefined) {
       await store.clearPendingNotifications("event", event.id);
       await store.scheduleNotificationsForItem("event", event.id, event.startsAt, event.notificationPolicyId);
     }
@@ -316,7 +319,7 @@ export const store = {
 
   async updateEventByNumber(
     number: number,
-    patch: Partial<Pick<CalendarEvent, "title" | "description" | "startsAt" | "endsAt" | "location">>
+    patch: Partial<Pick<CalendarEvent, "title" | "description" | "startsAt" | "endsAt" | "location" | "notificationPolicyId">>
   ) {
     if (config.storageDriver === "supabase") {
       return supabaseStore.updateEventByNumber(number, patch);
@@ -325,7 +328,7 @@ export const store = {
     const event = events.find((item) => item.number === number && item.status !== "cancelled");
     if (!event) return undefined;
     Object.assign(event, patch, { updatedAt: nowIso() });
-    if (patch.startsAt !== undefined) {
+    if (patch.startsAt !== undefined || patch.notificationPolicyId !== undefined) {
       await store.clearPendingNotifications("event", event.id);
       await store.scheduleNotificationsForItem("event", event.id, event.startsAt, event.notificationPolicyId);
     }
@@ -412,7 +415,7 @@ export const store = {
     return tasks.find((item) => item.number === number);
   },
 
-  async updateTaskByNumber(number: number, patch: Partial<Pick<Task, "title" | "description" | "dueAt" | "priority">>) {
+  async updateTaskByNumber(number: number, patch: Partial<Pick<Task, "title" | "description" | "dueAt" | "priority" | "notificationPolicyId">>) {
     if (config.storageDriver === "supabase") {
       return supabaseStore.updateTaskByNumber(number, patch);
     }
@@ -420,7 +423,7 @@ export const store = {
     const task = tasks.find((item) => item.number === number && item.status !== "cancelled");
     if (!task) return undefined;
     Object.assign(task, patch, { updatedAt: nowIso() });
-    if (patch.dueAt !== undefined) {
+    if (patch.dueAt !== undefined || patch.notificationPolicyId !== undefined) {
       await store.clearPendingNotifications("task", task.id);
       await store.scheduleNotificationsForItem("task", task.id, task.dueAt, task.notificationPolicyId);
     }
@@ -836,13 +839,14 @@ const supabaseStore = {
     return data ? mapTask(data) : undefined;
   },
 
-  async updateTaskByNumber(number: number, patch: Partial<Pick<Task, "title" | "description" | "dueAt" | "priority">>) {
+  async updateTaskByNumber(number: number, patch: Partial<Pick<Task, "title" | "description" | "dueAt" | "priority" | "notificationPolicyId">>) {
     const supabase = createSupabaseAdmin();
     const dbPatch: Record<string, unknown> = { updated_at: nowIso() };
     if (patch.title !== undefined) dbPatch.title = patch.title;
     if (patch.description !== undefined) dbPatch.description = patch.description;
     if (patch.dueAt !== undefined) dbPatch.due_at = patch.dueAt;
     if (patch.priority !== undefined) dbPatch.priority = patch.priority;
+    if (patch.notificationPolicyId !== undefined) dbPatch.notification_policy_id = patch.notificationPolicyId;
 
     const { data, error } = await supabase
       .from("tasks")
@@ -856,7 +860,7 @@ const supabaseStore = {
     if (error) throw error;
     if (!data) return undefined;
     const task = mapTask(data);
-    if (patch.dueAt !== undefined) {
+    if (patch.dueAt !== undefined || patch.notificationPolicyId !== undefined) {
       await store.clearPendingNotifications("task", task.id);
       await store.scheduleNotificationsForItem("task", task.id, task.dueAt, task.notificationPolicyId);
     }
@@ -897,13 +901,14 @@ const supabaseStore = {
     return mapTask(data);
   },
 
-  async updateTaskById(id: string, patch: Partial<Pick<Task, "title" | "description" | "dueAt" | "priority">>) {
+  async updateTaskById(id: string, patch: Partial<Pick<Task, "title" | "description" | "dueAt" | "priority" | "notificationPolicyId">>) {
     const supabase = createSupabaseAdmin();
     const dbPatch: Record<string, unknown> = { updated_at: nowIso() };
     if (patch.title !== undefined) dbPatch.title = patch.title;
     if (patch.description !== undefined) dbPatch.description = patch.description;
     if (patch.dueAt !== undefined) dbPatch.due_at = patch.dueAt;
     if (patch.priority !== undefined) dbPatch.priority = patch.priority;
+    if (patch.notificationPolicyId !== undefined) dbPatch.notification_policy_id = patch.notificationPolicyId;
 
     const { data, error } = await supabase
       .from("tasks")
@@ -916,7 +921,7 @@ const supabaseStore = {
 
     if (error) throw error;
     const task = mapTask(data);
-    if (patch.dueAt !== undefined) {
+    if (patch.dueAt !== undefined || patch.notificationPolicyId !== undefined) {
       await store.clearPendingNotifications("task", id);
       await store.scheduleNotificationsForItem("task", id, task.dueAt, task.notificationPolicyId);
     }
@@ -948,7 +953,7 @@ const supabaseStore = {
 
   async updateEventById(
     id: string,
-    patch: Partial<Pick<CalendarEvent, "title" | "description" | "startsAt" | "endsAt" | "location">>
+    patch: Partial<Pick<CalendarEvent, "title" | "description" | "startsAt" | "endsAt" | "location" | "notificationPolicyId">>
   ) {
     const supabase = createSupabaseAdmin();
     const dbPatch: Record<string, unknown> = { updated_at: nowIso() };
@@ -957,6 +962,7 @@ const supabaseStore = {
     if (patch.startsAt !== undefined) dbPatch.starts_at = patch.startsAt;
     if (patch.endsAt !== undefined) dbPatch.ends_at = patch.endsAt;
     if (patch.location !== undefined) dbPatch.location = patch.location;
+    if (patch.notificationPolicyId !== undefined) dbPatch.notification_policy_id = patch.notificationPolicyId;
 
     const { data, error } = await supabase
       .from("events")
@@ -969,7 +975,7 @@ const supabaseStore = {
 
     if (error) throw error;
     const event = mapEvent(data);
-    if (patch.startsAt !== undefined) {
+    if (patch.startsAt !== undefined || patch.notificationPolicyId !== undefined) {
       await store.clearPendingNotifications("event", id);
       await store.scheduleNotificationsForItem("event", id, event.startsAt, event.notificationPolicyId);
     }
@@ -1199,6 +1205,7 @@ const supabaseStore = {
       id: String(policy.id),
       workspaceId: String(policy.workspace_id),
       name: String(policy.name),
+      description: policy.description ? String(policy.description) : undefined,
       isDefault: Boolean(policy.is_default),
       rules: (rules || [])
         .filter((rule) => rule.policy_id === policy.id)

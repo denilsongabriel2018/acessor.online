@@ -36,6 +36,15 @@ const response = (intent: string, data: unknown, warnings: string[] = []) => ({
   }
 });
 
+// A IA/usuario escolhe a politica pelo nome ("leve"/"normal"/"intenso"), nao
+// pelo UUID - resolve pro id de verdade aqui. Nome invalido ou ausente cai
+// pro comportamento padrao do store (pickPolicy usa a politica default).
+async function resolvePolicyId(name?: string): Promise<string | undefined> {
+  if (!name) return undefined;
+  const policies = await store.listNotificationPolicies();
+  return policies.find((policy) => policy.name.toLowerCase() === name.toLowerCase())?.id;
+}
+
 app.get("/health", async () => response("health", { status: "ok" }));
 
 app.get("/api/items", async (request) => {
@@ -121,10 +130,14 @@ app.post("/api/commands", async (request, reply) => {
 
   const command = commandSchema.parse(request.body);
   if (command.intent === "create_task") {
-    return response(command.intent, { task: await store.createTask(command.payload) });
+    const { notificationPolicy, ...payload } = command.payload;
+    const notificationPolicyId = payload.notificationPolicyId || (await resolvePolicyId(notificationPolicy));
+    return response(command.intent, { task: await store.createTask({ ...payload, notificationPolicyId }) });
   }
   if (command.intent === "create_event") {
-    return response(command.intent, { event: await store.createEvent(command.payload) });
+    const { notificationPolicy, ...payload } = command.payload;
+    const notificationPolicyId = payload.notificationPolicyId || (await resolvePolicyId(notificationPolicy));
+    return response(command.intent, { event: await store.createEvent({ ...payload, notificationPolicyId }) });
   }
   if (command.intent === "complete_task") {
     return response(command.intent, await store.completeTasks(command.task_numbers));
@@ -156,6 +169,10 @@ app.post("/api/commands", async (request, reply) => {
       if (typeof raw.description === "string" && raw.description.trim() !== "") cleaned.description = raw.description.trim();
       if (typeof raw.dueAt === "string" && raw.dueAt.trim() !== "") cleaned.dueAt = raw.dueAt;
       if (raw.priority !== undefined && raw.priority !== "") cleaned.priority = raw.priority;
+      if (typeof raw.notificationPolicy === "string" && raw.notificationPolicy.trim() !== "") {
+        const resolvedId = await resolvePolicyId(raw.notificationPolicy);
+        if (resolvedId) cleaned.notificationPolicyId = resolvedId;
+      }
 
       const patch = updateTaskSchema.parse(cleaned);
       const item = await store.updateTaskByNumber(command.number, patch);
@@ -168,6 +185,10 @@ app.post("/api/commands", async (request, reply) => {
     if (typeof raw.startsAt === "string" && raw.startsAt.trim() !== "") cleaned.startsAt = raw.startsAt;
     if (typeof raw.endsAt === "string" && raw.endsAt.trim() !== "") cleaned.endsAt = raw.endsAt;
     if (typeof raw.location === "string" && raw.location.trim() !== "") cleaned.location = raw.location.trim();
+    if (typeof raw.notificationPolicy === "string" && raw.notificationPolicy.trim() !== "") {
+      const resolvedId = await resolvePolicyId(raw.notificationPolicy);
+      if (resolvedId) cleaned.notificationPolicyId = resolvedId;
+    }
 
     const patch = updateEventSchema.parse(cleaned);
     const item = await store.updateEventByNumber(command.number, patch);

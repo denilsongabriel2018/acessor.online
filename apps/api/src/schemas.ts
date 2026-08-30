@@ -25,6 +25,10 @@ const flexibleNumberList = z.preprocess((value) => {
   return value;
 }, z.array(z.number().int().positive()).min(1));
 
+// Nomes fixos das 3 politicas seedadas (ver migration 001) - a IA/usuario
+// escolhe por nome, nao por UUID; server.ts resolve o nome pro id de verdade.
+export const notificationPolicyNameSchema = z.enum(["leve", "normal", "intenso"]);
+
 export const createTaskSchema = z.object({
   title: z.string().trim().min(1),
   description: emptyToUndefined(z.string().trim()),
@@ -32,7 +36,8 @@ export const createTaskSchema = z.object({
   priority: z.coerce.number().int().min(1).max(5).default(3),
   source: z.enum(["front", "n8n", "api"]).default("front"),
   originalMessage: z.string().optional(),
-  notificationPolicyId: z.string().uuid().optional()
+  notificationPolicyId: z.string().optional(),
+  notificationPolicy: emptyToUndefined(notificationPolicyNameSchema)
 });
 
 export const createEventSchema = z.object({
@@ -43,7 +48,8 @@ export const createEventSchema = z.object({
   location: emptyToUndefined(z.string().trim()),
   source: z.enum(["front", "n8n", "api"]).default("front"),
   originalMessage: z.string().optional(),
-  notificationPolicyId: z.string().uuid().optional()
+  notificationPolicyId: z.string().optional(),
+  notificationPolicy: emptyToUndefined(notificationPolicyNameSchema)
 });
 
 export const updateTaskSchema = z
@@ -51,7 +57,8 @@ export const updateTaskSchema = z
     title: z.string().trim().min(1).optional(),
     description: z.string().trim().optional(),
     dueAt: z.string().datetime().optional(),
-    priority: z.coerce.number().int().min(1).max(5).optional()
+    priority: z.coerce.number().int().min(1).max(5).optional(),
+    notificationPolicyId: z.string().optional()
   })
   .refine((data) => Object.keys(data).length > 0, { message: "Informe ao menos um campo para atualizar" });
 
@@ -61,7 +68,8 @@ export const updateEventSchema = z
     description: z.string().trim().optional(),
     startsAt: z.string().datetime().optional(),
     endsAt: z.string().datetime().optional(),
-    location: z.string().trim().optional()
+    location: z.string().trim().optional(),
+    notificationPolicyId: z.string().optional()
   })
   .refine((data) => Object.keys(data).length > 0, { message: "Informe ao menos um campo para atualizar" })
   .refine((data) => !(data.startsAt && data.endsAt) || new Date(data.endsAt) > new Date(data.startsAt), {
@@ -128,7 +136,11 @@ export const commandSchema = z.discriminatedUnion("intent", [
       priority: z.union([z.string(), z.number()]).optional(),
       startsAt: z.string().optional(),
       endsAt: z.string().optional(),
-      location: z.string().optional()
+      location: z.string().optional(),
+      // Nome da politica ("leve"/"normal"/"intenso"), string vazia = nao muda.
+      // Resolvido pro id de verdade no server.ts antes de validar com
+      // updateTaskSchema/updateEventSchema.
+      notificationPolicy: z.string().optional()
     })
   }),
   z.object({

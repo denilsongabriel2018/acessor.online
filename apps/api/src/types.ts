@@ -57,6 +57,7 @@ export type NotificationPolicy = {
   id: string;
   workspaceId?: string;
   name: string;
+  description?: string;
   isDefault: boolean;
   rules: NotificationRule[];
 };
