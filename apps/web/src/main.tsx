@@ -35,6 +35,7 @@ type Item = {
   startsAt?: string;
   endsAt?: string;
   location?: string;
+  alarmEnabled?: boolean;
 };
 
 type NotificationRuleKind = "before_due" | "after_due" | "repeat_until_done" | "daily_summary";
@@ -354,6 +355,17 @@ function Dashboard({ session }: { session: Session | null }) {
     await patchItem(item, { title: novoTitulo.trim() });
   }
 
+  async function editItemDescription(item: Item) {
+    const novaDescricao = window.prompt("Descricao:", item.description || "");
+    if (novaDescricao === null || novaDescricao === (item.description || "")) return;
+    await patchItem(item, { description: novaDescricao.trim() });
+  }
+
+  async function toggleAlarm(item: Item) {
+    const atual = item.alarmEnabled !== false;
+    await patchItem(item, { alarmEnabled: !atual });
+  }
+
   async function rescheduleItem(item: Item) {
     if (item.itemType === "task") {
       const atual = item.dueAt ? new Date(item.dueAt) : new Date();
@@ -578,6 +590,8 @@ function Dashboard({ session }: { session: Session | null }) {
             loading={loading}
             onComplete={completeTask}
             onEditTitle={editItemTitle}
+            onEditDescription={editItemDescription}
+            onToggleAlarm={toggleAlarm}
             onReschedule={rescheduleItem}
             onCancel={cancelItem}
             onArchive={archiveItem}
@@ -1186,6 +1200,8 @@ function ItemsListView({
   loading,
   onComplete,
   onEditTitle,
+  onEditDescription,
+  onToggleAlarm,
   onReschedule,
   onCancel,
   onArchive,
@@ -1195,6 +1211,8 @@ function ItemsListView({
   loading: boolean;
   onComplete: (id: string) => void;
   onEditTitle: (item: Item) => void;
+  onEditDescription: (item: Item) => void;
+  onToggleAlarm: (item: Item) => void;
   onReschedule: (item: Item) => void;
   onCancel: (item: Item) => void;
   onArchive: (item: Item) => void;
@@ -1264,6 +1282,16 @@ function ItemsListView({
                       {item.status !== "cancelled" ? (
                         <button type="button" className="sheet-action" onClick={() => onEditTitle(item)}>
                           editar
+                        </button>
+                      ) : null}
+                      {item.status !== "cancelled" ? (
+                        <button type="button" className="sheet-action" onClick={() => onEditDescription(item)}>
+                          descricao
+                        </button>
+                      ) : null}
+                      {item.status !== "cancelled" ? (
+                        <button type="button" className="sheet-action" onClick={() => onToggleAlarm(item)}>
+                          {item.alarmEnabled === false ? "reativar alarme" : "silenciar"}
                         </button>
                       ) : null}
                       {item.status !== "cancelled" ? (

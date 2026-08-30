@@ -29,6 +29,16 @@ const flexibleNumberList = z.preprocess((value) => {
 // escolhe por nome, nao por UUID; server.ts resolve o nome pro id de verdade.
 export const notificationPolicyNameSchema = z.enum(["leve", "normal", "intenso"]);
 
+// A IA manda booleano como string ("true"/"false") na maioria das vezes -
+// string vazia = "nao especificou" (cai no default), qualquer outra string
+// e comparada por igualdade com "true" pra virar boolean de verdade.
+const flexibleBoolean = (defaultValue: boolean) =>
+  z.preprocess((value) => {
+    if (value === "" || value === undefined) return undefined;
+    if (typeof value === "string") return value.trim().toLowerCase() === "true";
+    return value;
+  }, z.boolean().default(defaultValue));
+
 export const createTaskSchema = z.object({
   title: z.string().trim().min(1),
   description: emptyToUndefined(z.string().trim()),
@@ -37,7 +47,8 @@ export const createTaskSchema = z.object({
   source: z.enum(["front", "n8n", "api"]).default("front"),
   originalMessage: z.string().optional(),
   notificationPolicyId: z.string().optional(),
-  notificationPolicy: emptyToUndefined(notificationPolicyNameSchema)
+  notificationPolicy: emptyToUndefined(notificationPolicyNameSchema),
+  alarmEnabled: flexibleBoolean(true)
 });
 
 export const createEventSchema = z.object({
@@ -49,7 +60,8 @@ export const createEventSchema = z.object({
   source: z.enum(["front", "n8n", "api"]).default("front"),
   originalMessage: z.string().optional(),
   notificationPolicyId: z.string().optional(),
-  notificationPolicy: emptyToUndefined(notificationPolicyNameSchema)
+  notificationPolicy: emptyToUndefined(notificationPolicyNameSchema),
+  alarmEnabled: flexibleBoolean(true)
 });
 
 export const updateTaskSchema = z
@@ -58,7 +70,8 @@ export const updateTaskSchema = z
     description: z.string().trim().optional(),
     dueAt: z.string().datetime().optional(),
     priority: z.coerce.number().int().min(1).max(5).optional(),
-    notificationPolicyId: z.string().optional()
+    notificationPolicyId: z.string().optional(),
+    alarmEnabled: z.boolean().optional()
   })
   .refine((data) => Object.keys(data).length > 0, { message: "Informe ao menos um campo para atualizar" });
 
@@ -69,7 +82,8 @@ export const updateEventSchema = z
     startsAt: z.string().datetime().optional(),
     endsAt: z.string().datetime().optional(),
     location: z.string().trim().optional(),
-    notificationPolicyId: z.string().optional()
+    notificationPolicyId: z.string().optional(),
+    alarmEnabled: z.boolean().optional()
   })
   .refine((data) => Object.keys(data).length > 0, { message: "Informe ao menos um campo para atualizar" })
   .refine((data) => !(data.startsAt && data.endsAt) || new Date(data.endsAt) > new Date(data.startsAt), {
@@ -140,7 +154,10 @@ export const commandSchema = z.discriminatedUnion("intent", [
       // Nome da politica ("leve"/"normal"/"intenso"), string vazia = nao muda.
       // Resolvido pro id de verdade no server.ts antes de validar com
       // updateTaskSchema/updateEventSchema.
-      notificationPolicy: z.string().optional()
+      notificationPolicy: z.string().optional(),
+      // "true"/"false" como string (ou boolean de verdade), string vazia =
+      // nao muda. Convertido pro tipo certo no server.ts.
+      alarmEnabled: z.union([z.string(), z.boolean()]).optional()
     })
   }),
   z.object({

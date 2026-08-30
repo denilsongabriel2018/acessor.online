@@ -15,6 +15,7 @@ export type Task = {
   source: "front" | "n8n" | "api";
   originalMessage?: string;
   notificationPolicyId?: string;
+  alarmEnabled: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -32,6 +33,7 @@ export type CalendarEvent = {
   source: "front" | "n8n" | "api";
   originalMessage?: string;
   notificationPolicyId?: string;
+  alarmEnabled: boolean;
   createdAt: string;
   updatedAt: string;
 };

@@ -173,6 +173,9 @@ app.post("/api/commands", async (request, reply) => {
         const resolvedId = await resolvePolicyId(raw.notificationPolicy);
         if (resolvedId) cleaned.notificationPolicyId = resolvedId;
       }
+      if (raw.alarmEnabled !== undefined && raw.alarmEnabled !== "") {
+        cleaned.alarmEnabled = typeof raw.alarmEnabled === "string" ? raw.alarmEnabled.trim().toLowerCase() === "true" : raw.alarmEnabled;
+      }
 
       const patch = updateTaskSchema.parse(cleaned);
       const item = await store.updateTaskByNumber(command.number, patch);
@@ -188,6 +191,9 @@ app.post("/api/commands", async (request, reply) => {
     if (typeof raw.notificationPolicy === "string" && raw.notificationPolicy.trim() !== "") {
       const resolvedId = await resolvePolicyId(raw.notificationPolicy);
       if (resolvedId) cleaned.notificationPolicyId = resolvedId;
+    }
+    if (raw.alarmEnabled !== undefined && raw.alarmEnabled !== "") {
+      cleaned.alarmEnabled = typeof raw.alarmEnabled === "string" ? raw.alarmEnabled.trim().toLowerCase() === "true" : raw.alarmEnabled;
     }
 
     const patch = updateEventSchema.parse(cleaned);
