@@ -12,6 +12,7 @@ import {
 } from "./schemas.js";
 import { startScheduler } from "./scheduler.js";
 import { store } from "./store.js";
+import type { ItemListRow } from "./types.js";
 
 // TODO(seguranca): nenhuma rota abaixo valida o Bearer token do Supabase Auth.
 // O front ja manda o token em toda chamada (apiFetch em main.tsx) mas a API
@@ -55,6 +56,27 @@ function withPolicyName<T extends WithPolicyId>(
 ): T & { notificationPolicyName?: string } {
   const policy = item.notificationPolicyId ? policies.find((p) => p.id === item.notificationPolicyId) : undefined;
   return { ...item, notificationPolicyName: policy?.name.toLowerCase() };
+}
+
+// list_items do /api/commands e sempre consumido pela IA (n8n) - cada campo a
+// mais em cada item de uma lista e tokens a mais, multiplicados pela
+// quantidade de itens. /api/items (usado pelo site) continua devolvendo o
+// item completo direto do store, sem passar por aqui - o site precisa de
+// tudo (id, description, etc.) pra editar. So essa rota (a "porta" de
+// entrada da IA) resume; o formato do dado guardado nao muda.
+function toListSummary(item: ItemListRow & { notificationPolicyName?: string }) {
+  const base = {
+    itemType: item.itemType,
+    number: item.number,
+    title: item.title,
+    status: item.status,
+    alarmEnabled: item.alarmEnabled,
+    notificationPolicyName: item.notificationPolicyName
+  };
+  if (item.itemType === "task") {
+    return { ...base, priority: item.priority, dueAt: item.dueAt };
+  }
+  return { ...base, startsAt: item.startsAt, endsAt: item.endsAt, location: item.location };
 }
 
 app.get("/health", async () => response("health", { status: "ok" }));
@@ -224,7 +246,13 @@ app.post("/api/commands", async (request, reply) => {
   }
   const items = await store.listItems(command.filters);
   const policies = await store.listNotificationPolicies();
-  return response(command.intent, { items: items.map((item) => withPolicyName(item, policies)) });
+  const detail = command.filters.detail ?? "simple";
+  return response(command.intent, {
+    items: items.map((item) => {
+      const withPolicy = withPolicyName(item, policies);
+      return detail === "advanced" ? withPolicy : toListSummary(withPolicy);
+    })
+  });
 });
 
 app.setErrorHandler((error, _request, reply) => {

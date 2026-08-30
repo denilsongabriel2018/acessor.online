@@ -100,7 +100,13 @@ export const listItemsQuerySchema = z.object({
   // limit/order cobrem busca por quantidade em vez de por periodo (ex: "os
   // ultimos 10 eventos", "so 5 tarefas") - independente de period_start/end.
   limit: emptyToUndefined(z.coerce.number().int().min(1).max(200)),
-  order: emptyToUndefined(z.enum(["asc", "desc"]))
+  order: emptyToUndefined(z.enum(["asc", "desc"])),
+  // "simple" (padrao no /api/commands) devolve so os campos essenciais por
+  // item - cada campo a mais numa listagem e tokens a mais multiplicados
+  // pela quantidade de itens, o que pesa no custo/velocidade da IA. "advanced"
+  // devolve o item completo. /api/items (site) ignora esse campo e sempre
+  // devolve completo, independente do que vier aqui.
+  detail: emptyToUndefined(z.enum(["simple", "advanced"]))
 });
 
 export const commandSchema = z.discriminatedUnion("intent", [
