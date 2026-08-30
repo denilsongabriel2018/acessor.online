@@ -288,6 +288,73 @@ export const store = {
     };
   },
 
+  async archiveTasks(numbers: number[]) {
+    if (config.storageDriver === "supabase") {
+      return supabaseStore.archiveTasks(numbers);
+    }
+
+    const archived: Task[] = [];
+    const notFound: number[] = [];
+
+    for (const number of numbers) {
+      const task = tasks.find((item) => item.number === number && item.status !== "cancelled");
+      if (!task) {
+        notFound.push(number);
+        continue;
+      }
+      task.status = "archived";
+      task.updatedAt = nowIso();
+      await store.clearPendingNotifications("task", task.id);
+      archived.push(task);
+    }
+
+    return { archived, notFound };
+  },
+
+  async deleteTasks(numbers: number[]) {
+    if (config.storageDriver === "supabase") {
+      return supabaseStore.deleteTasks(numbers);
+    }
+
+    const deleted: number[] = [];
+    const notFound: number[] = [];
+
+    for (const number of numbers) {
+      const index = tasks.findIndex((item) => item.number === number);
+      if (index === -1) {
+        notFound.push(number);
+        continue;
+      }
+      const [task] = tasks.splice(index, 1);
+      await store.clearPendingNotifications("task", task.id);
+      deleted.push(number);
+    }
+
+    return { deleted, notFound };
+  },
+
+  async getTaskByNumber(number: number) {
+    if (config.storageDriver === "supabase") {
+      return supabaseStore.getTaskByNumber(number);
+    }
+    return tasks.find((item) => item.number === number);
+  },
+
+  async updateTaskByNumber(number: number, patch: Partial<Pick<Task, "title" | "description" | "dueAt" | "priority">>) {
+    if (config.storageDriver === "supabase") {
+      return supabaseStore.updateTaskByNumber(number, patch);
+    }
+
+    const task = tasks.find((item) => item.number === number && item.status !== "cancelled");
+    if (!task) return undefined;
+    Object.assign(task, patch, { updatedAt: nowIso() });
+    if (patch.dueAt !== undefined) {
+      await store.clearPendingNotifications("task", task.id);
+      await store.scheduleNotificationsForItem("task", task.id, task.dueAt, task.notificationPolicyId);
+    }
+    return task;
+  },
+
   async listItems(filters: {
     type?: "task" | "event" | "all";
     status?: string;
@@ -295,6 +362,8 @@ export const store = {
     period_start?: string;
     period_end?: string;
     q?: string;
+    limit?: number;
+    order?: "asc" | "desc";
   }): Promise<ItemListRow[]> {
     if (config.storageDriver === "supabase") {
       return supabaseStore.listItems(filters);
@@ -324,14 +393,24 @@ export const store = {
       );
     }
 
-    return rows.sort((a, b) => {
-      if (a.itemType === "task" && b.itemType === "task") {
-        return a.priority - b.priority || a.number - b.number;
-      }
-      const aDate = a.itemType === "task" ? a.dueAt || a.createdAt : a.startsAt;
-      const bDate = b.itemType === "task" ? b.dueAt || b.createdAt : b.startsAt;
-      return new Date(aDate).getTime() - new Date(bDate).getTime();
-    });
+    const itemDate = (item: ItemListRow) => (item.itemType === "task" ? item.dueAt || item.createdAt : item.startsAt);
+
+    // "order" pede busca por quantidade/recencia (ex: "ultimos 10 eventos"),
+    // ordenando so por data, sem o desempate por prioridade que a listagem
+    // por periodo usa - senao "ultimos 10" viraria "os 10 de maior prioridade".
+    const sorted = filters.order
+      ? rows.sort((a, b) => {
+          const diff = new Date(itemDate(a)).getTime() - new Date(itemDate(b)).getTime();
+          return filters.order === "desc" ? -diff : diff;
+        })
+      : rows.sort((a, b) => {
+          if (a.itemType === "task" && b.itemType === "task") {
+            return a.priority - b.priority || a.number - b.number;
+          }
+          return new Date(itemDate(a)).getTime() - new Date(itemDate(b)).getTime();
+        });
+
+    return filters.limit ? sorted.slice(0, filters.limit) : sorted;
   },
 
   async listNotificationPolicies(): Promise<NotificationPolicy[]> {
@@ -602,6 +681,104 @@ const supabaseStore = {
     };
   },
 
+  async archiveTasks(numbers: number[]) {
+    const supabase = createSupabaseAdmin();
+    const updatedAt = nowIso();
+    const { data: found, error: findError } = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .in("number", numbers)
+      .neq("status", "cancelled");
+
+    if (findError) throw findError;
+
+    const foundNumbers = new Set((found || []).map((task) => Number(task.number)));
+    const notFound = numbers.filter((number) => !foundNumbers.has(number));
+
+    const { data: updated, error: updateError } = await supabase
+      .from("tasks")
+      .update({ status: "archived", updated_at: updatedAt })
+      .eq("workspace_id", workspaceId)
+      .in("number", [...foundNumbers])
+      .select("*");
+
+    if (updateError) throw updateError;
+
+    for (const task of updated || []) {
+      await store.clearPendingNotifications("task", String(task.id));
+    }
+
+    return { archived: (updated || []).map(mapTask), notFound };
+  },
+
+  async deleteTasks(numbers: number[]) {
+    const supabase = createSupabaseAdmin();
+    const { data: found, error: findError } = await supabase
+      .from("tasks")
+      .select("id, number")
+      .eq("workspace_id", workspaceId)
+      .in("number", numbers);
+
+    if (findError) throw findError;
+
+    const foundNumbers = new Set((found || []).map((task) => Number(task.number)));
+    const notFound = numbers.filter((number) => !foundNumbers.has(number));
+
+    const { error: deleteError } = await supabase
+      .from("tasks")
+      .delete()
+      .eq("workspace_id", workspaceId)
+      .in("number", [...foundNumbers]);
+
+    if (deleteError) throw deleteError;
+
+    for (const task of found || []) {
+      await store.clearPendingNotifications("task", String(task.id));
+    }
+
+    return { deleted: [...foundNumbers], notFound };
+  },
+
+  async getTaskByNumber(number: number) {
+    const supabase = createSupabaseAdmin();
+    const { data, error } = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("number", number)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapTask(data) : undefined;
+  },
+
+  async updateTaskByNumber(number: number, patch: Partial<Pick<Task, "title" | "description" | "dueAt" | "priority">>) {
+    const supabase = createSupabaseAdmin();
+    const dbPatch: Record<string, unknown> = { updated_at: nowIso() };
+    if (patch.title !== undefined) dbPatch.title = patch.title;
+    if (patch.description !== undefined) dbPatch.description = patch.description;
+    if (patch.dueAt !== undefined) dbPatch.due_at = patch.dueAt;
+    if (patch.priority !== undefined) dbPatch.priority = patch.priority;
+
+    const { data, error } = await supabase
+      .from("tasks")
+      .update(dbPatch)
+      .eq("workspace_id", workspaceId)
+      .eq("number", number)
+      .neq("status", "cancelled")
+      .select("*")
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return undefined;
+    const task = mapTask(data);
+    if (patch.dueAt !== undefined) {
+      await store.clearPendingNotifications("task", task.id);
+      await store.scheduleNotificationsForItem("task", task.id, task.dueAt, task.notificationPolicyId);
+    }
+    return task;
+  },
+
   async completeTaskById(id: string) {
     const supabase = createSupabaseAdmin();
     const completedAt = nowIso();
@@ -761,9 +938,13 @@ const supabaseStore = {
     period_start?: string;
     period_end?: string;
     q?: string;
+    limit?: number;
+    order?: "asc" | "desc";
   }): Promise<ItemListRow[]> {
     const supabase = createSupabaseAdmin();
     const rows: ItemListRow[] = [];
+    const ascending = filters.order !== "desc";
+    const rowLimit = filters.limit || 200;
 
     if (filters.type !== "event") {
       let query = supabase.from("tasks").select("*").eq("workspace_id", workspaceId);
@@ -772,7 +953,9 @@ const supabaseStore = {
       if (filters.period_start) query = query.gte("due_at", filters.period_start);
       if (filters.period_end) query = query.lte("due_at", filters.period_end);
       if (filters.q) query = query.ilike("title", `%${filters.q}%`);
-      query = query.order("priority", { ascending: true }).order("number", { ascending: true }).limit(200);
+      query = filters.order
+        ? query.order("due_at", { ascending }).limit(rowLimit)
+        : query.order("priority", { ascending: true }).order("number", { ascending: true }).limit(rowLimit);
 
       const { data, error } = await query;
       if (error) throw error;
@@ -785,21 +968,28 @@ const supabaseStore = {
       if (filters.period_start) query = query.gte("starts_at", filters.period_start);
       if (filters.period_end) query = query.lte("starts_at", filters.period_end);
       if (filters.q) query = query.ilike("title", `%${filters.q}%`);
-      query = query.order("starts_at", { ascending: true }).limit(200);
+      query = query.order("starts_at", { ascending }).limit(rowLimit);
 
       const { data, error } = await query;
       if (error) throw error;
       rows.push(...(data || []).map((event) => ({ ...mapEvent(event), itemType: "event" as const })));
     }
 
-    return rows.sort((a, b) => {
-      if (a.itemType === "task" && b.itemType === "task") {
-        return a.priority - b.priority || a.number - b.number;
-      }
-      const aDate = a.itemType === "task" ? a.dueAt || a.createdAt : a.startsAt;
-      const bDate = b.itemType === "task" ? b.dueAt || b.createdAt : b.startsAt;
-      return new Date(aDate).getTime() - new Date(bDate).getTime();
-    });
+    const itemDate = (item: ItemListRow) => (item.itemType === "task" ? item.dueAt || item.createdAt : item.startsAt);
+
+    const sorted = filters.order
+      ? rows.sort((a, b) => {
+          const diff = new Date(itemDate(a)).getTime() - new Date(itemDate(b)).getTime();
+          return filters.order === "desc" ? -diff : diff;
+        })
+      : rows.sort((a, b) => {
+          if (a.itemType === "task" && b.itemType === "task") {
+            return a.priority - b.priority || a.number - b.number;
+          }
+          return new Date(itemDate(a)).getTime() - new Date(itemDate(b)).getTime();
+        });
+
+    return filters.limit ? sorted.slice(0, filters.limit) : sorted;
   },
 
   async listNotificationPolicies(): Promise<NotificationPolicy[]> {

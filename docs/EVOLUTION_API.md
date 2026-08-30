@@ -26,13 +26,19 @@ apikey: <TOKEN_DA_INSTANCIA>
 
 ## Enviar mensagem de texto
 
+**Atencao**: a doc publica (e outras versoes da Evolution API) descrevem o
+texto aninhado em `textMessage.text`, mas na pratica (testado nesta
+instancia via curl) a API rejeita isso com
+`"instance requires property \"text\""` — o campo `text` tem que estar
+direto na raiz do body:
+
 ```
 POST {URL_BASE}/message/sendText/{instanceName}
 Headers: apikey: <TOKEN>
 Body:
 {
   "number": "5511999999999",
-  "textMessage": { "text": "sua mensagem aqui" },
+  "text": "sua mensagem aqui",
   "delay": 1200,          // opcional, ms de "digitando..." antes de enviar
   "linkPreview": true     // opcional
 }

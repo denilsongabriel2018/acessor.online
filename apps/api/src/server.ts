@@ -129,6 +129,28 @@ app.post("/api/commands", async (request, reply) => {
   if (command.intent === "complete_task") {
     return response(command.intent, await store.completeTasks(command.task_numbers));
   }
+  if (command.intent === "archive_task") {
+    return response(command.intent, await store.archiveTasks(command.task_numbers));
+  }
+  if (command.intent === "delete_task") {
+    return response(command.intent, await store.deleteTasks(command.task_numbers));
+  }
+  if (command.intent === "get_task") {
+    const task = await store.getTaskByNumber(command.task_number);
+    return response(command.intent, { task });
+  }
+  if (command.intent === "update_task") {
+    const raw = command.patch;
+    const cleaned: Record<string, unknown> = {};
+    if (typeof raw.title === "string" && raw.title.trim() !== "") cleaned.title = raw.title.trim();
+    if (typeof raw.description === "string" && raw.description.trim() !== "") cleaned.description = raw.description.trim();
+    if (typeof raw.dueAt === "string" && raw.dueAt.trim() !== "") cleaned.dueAt = raw.dueAt;
+    if (raw.priority !== undefined && raw.priority !== "") cleaned.priority = raw.priority;
+
+    const patch = updateTaskSchema.parse(cleaned);
+    const task = await store.updateTaskByNumber(command.task_number, patch);
+    return response(command.intent, { task });
+  }
   return response(command.intent, { items: await store.listItems(command.filters) });
 });
 

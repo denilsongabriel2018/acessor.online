@@ -1,5 +1,15 @@
 # Fluxo n8n: Agente IA (WhatsApp -> API)
 
+> **Status (2026-08-30)**: o modelo descrito neste documento (pipeline manual,
+> 1 chamada de IA pra interpretar + respostas por template, sem `AI Agent`
+> nativo) e o que estava rodando em producao e **funciona** — foi testado
+> ponta a ponta (criacao de tarefa confirmada). Por decisao do usuario, para
+> ganhar velocidade agora, o workflow vai migrar pra usar o node nativo
+> **AI Agent** do n8n (mais rapido de montar, mais caro por mensagem — ver
+> comparacao de custo abaixo). **Este documento fica preservado como
+> referencia** pra quando fizer sentido voltar a otimizar custo/determinismo
+> depois que o MVP estiver no ar.
+
 Aviso antes de tudo: esta sessao nao tem uma conexao MCP com n8n nem acesso a
 uma instancia real para testar a importacao. O arquivo abaixo foi escrito a
 mao seguindo o formato de export do n8n. Importe, rode um teste e me diga se
