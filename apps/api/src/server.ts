@@ -45,6 +45,18 @@ async function resolvePolicyId(name?: string): Promise<string | undefined> {
   return policies.find((policy) => policy.name.toLowerCase() === name.toLowerCase())?.id;
 }
 
+// Task/CalendarEvent so guardam notificationPolicyId (uuid) - sem isso, quem
+// le a resposta (IA/front) nao tem como saber que "leve"/"normal"/"intenso"
+// aquilo significa. Anexa o nome pra toda resposta que devolve item(ns).
+type WithPolicyId = { notificationPolicyId?: string };
+function withPolicyName<T extends WithPolicyId>(
+  item: T,
+  policies: Awaited<ReturnType<typeof store.listNotificationPolicies>>
+): T & { notificationPolicyName?: string } {
+  const policy = item.notificationPolicyId ? policies.find((p) => p.id === item.notificationPolicyId) : undefined;
+  return { ...item, notificationPolicyName: policy?.name.toLowerCase() };
+}
+
 app.get("/health", async () => response("health", { status: "ok" }));
 
 app.get("/api/items", async (request) => {
@@ -132,22 +144,29 @@ app.post("/api/commands", async (request, reply) => {
   if (command.intent === "create_task") {
     const { notificationPolicy, ...payload } = command.payload;
     const notificationPolicyId = payload.notificationPolicyId || (await resolvePolicyId(notificationPolicy));
-    return response(command.intent, { task: await store.createTask({ ...payload, notificationPolicyId }) });
+    const task = await store.createTask({ ...payload, notificationPolicyId });
+    const policies = await store.listNotificationPolicies();
+    return response(command.intent, { task: withPolicyName(task, policies) });
   }
   if (command.intent === "create_event") {
     const { notificationPolicy, ...payload } = command.payload;
     const notificationPolicyId = payload.notificationPolicyId || (await resolvePolicyId(notificationPolicy));
-    return response(command.intent, { event: await store.createEvent({ ...payload, notificationPolicyId }) });
+    const event = await store.createEvent({ ...payload, notificationPolicyId });
+    const policies = await store.listNotificationPolicies();
+    return response(command.intent, { event: withPolicyName(event, policies) });
   }
   if (command.intent === "complete_task") {
-    return response(command.intent, await store.completeTasks(command.task_numbers));
+    const result = await store.completeTasks(command.task_numbers);
+    const policies = await store.listNotificationPolicies();
+    return response(command.intent, { ...result, completed: result.completed.map((task) => withPolicyName(task, policies)) });
   }
   if (command.intent === "archive_item") {
     const result =
       command.item_type === "task"
         ? await store.archiveTasks(command.numbers)
         : await store.archiveEvents(command.numbers);
-    return response(command.intent, result);
+    const policies = await store.listNotificationPolicies();
+    return response(command.intent, { ...result, archived: result.archived.map((item) => withPolicyName(item, policies)) });
   }
   if (command.intent === "delete_item") {
     const result =
@@ -159,7 +178,8 @@ app.post("/api/commands", async (request, reply) => {
       command.item_type === "task"
         ? await store.getTaskByNumber(command.number)
         : await store.getEventByNumber(command.number);
-    return response(command.intent, { item });
+    const policies = await store.listNotificationPolicies();
+    return response(command.intent, { item: item ? withPolicyName(item, policies) : item });
   }
   if (command.intent === "update_item") {
     const raw = command.patch;
@@ -179,7 +199,8 @@ app.post("/api/commands", async (request, reply) => {
 
       const patch = updateTaskSchema.parse(cleaned);
       const item = await store.updateTaskByNumber(command.number, patch);
-      return response(command.intent, { item });
+      const policies = await store.listNotificationPolicies();
+      return response(command.intent, { item: item ? withPolicyName(item, policies) : item });
     }
 
     const cleaned: Record<string, unknown> = {};
@@ -198,9 +219,12 @@ app.post("/api/commands", async (request, reply) => {
 
     const patch = updateEventSchema.parse(cleaned);
     const item = await store.updateEventByNumber(command.number, patch);
-    return response(command.intent, { item });
+    const policies = await store.listNotificationPolicies();
+    return response(command.intent, { item: item ? withPolicyName(item, policies) : item });
   }
-  return response(command.intent, { items: await store.listItems(command.filters) });
+  const items = await store.listItems(command.filters);
+  const policies = await store.listNotificationPolicies();
+  return response(command.intent, { items: items.map((item) => withPolicyName(item, policies)) });
 });
 
 app.setErrorHandler((error, _request, reply) => {
