@@ -129,40 +129,39 @@ app.post("/api/commands", async (request, reply) => {
   if (command.intent === "complete_task") {
     return response(command.intent, await store.completeTasks(command.task_numbers));
   }
-  if (command.intent === "archive_task") {
-    return response(command.intent, await store.archiveTasks(command.task_numbers));
+  if (command.intent === "archive_item") {
+    const result =
+      command.item_type === "task"
+        ? await store.archiveTasks(command.numbers)
+        : await store.archiveEvents(command.numbers);
+    return response(command.intent, result);
   }
-  if (command.intent === "delete_task") {
-    return response(command.intent, await store.deleteTasks(command.task_numbers));
+  if (command.intent === "delete_item") {
+    const result =
+      command.item_type === "task" ? await store.deleteTasks(command.numbers) : await store.deleteEvents(command.numbers);
+    return response(command.intent, result);
   }
-  if (command.intent === "get_task") {
-    const task = await store.getTaskByNumber(command.task_number);
-    return response(command.intent, { task });
+  if (command.intent === "get_item") {
+    const item =
+      command.item_type === "task"
+        ? await store.getTaskByNumber(command.number)
+        : await store.getEventByNumber(command.number);
+    return response(command.intent, { item });
   }
-  if (command.intent === "update_task") {
+  if (command.intent === "update_item") {
     const raw = command.patch;
-    const cleaned: Record<string, unknown> = {};
-    if (typeof raw.title === "string" && raw.title.trim() !== "") cleaned.title = raw.title.trim();
-    if (typeof raw.description === "string" && raw.description.trim() !== "") cleaned.description = raw.description.trim();
-    if (typeof raw.dueAt === "string" && raw.dueAt.trim() !== "") cleaned.dueAt = raw.dueAt;
-    if (raw.priority !== undefined && raw.priority !== "") cleaned.priority = raw.priority;
+    if (command.item_type === "task") {
+      const cleaned: Record<string, unknown> = {};
+      if (typeof raw.title === "string" && raw.title.trim() !== "") cleaned.title = raw.title.trim();
+      if (typeof raw.description === "string" && raw.description.trim() !== "") cleaned.description = raw.description.trim();
+      if (typeof raw.dueAt === "string" && raw.dueAt.trim() !== "") cleaned.dueAt = raw.dueAt;
+      if (raw.priority !== undefined && raw.priority !== "") cleaned.priority = raw.priority;
 
-    const patch = updateTaskSchema.parse(cleaned);
-    const task = await store.updateTaskByNumber(command.task_number, patch);
-    return response(command.intent, { task });
-  }
-  if (command.intent === "archive_event") {
-    return response(command.intent, await store.archiveEvents(command.event_numbers));
-  }
-  if (command.intent === "delete_event") {
-    return response(command.intent, await store.deleteEvents(command.event_numbers));
-  }
-  if (command.intent === "get_event") {
-    const event = await store.getEventByNumber(command.event_number);
-    return response(command.intent, { event });
-  }
-  if (command.intent === "update_event") {
-    const raw = command.patch;
+      const patch = updateTaskSchema.parse(cleaned);
+      const item = await store.updateTaskByNumber(command.number, patch);
+      return response(command.intent, { item });
+    }
+
     const cleaned: Record<string, unknown> = {};
     if (typeof raw.title === "string" && raw.title.trim() !== "") cleaned.title = raw.title.trim();
     if (typeof raw.description === "string" && raw.description.trim() !== "") cleaned.description = raw.description.trim();
@@ -171,8 +170,8 @@ app.post("/api/commands", async (request, reply) => {
     if (typeof raw.location === "string" && raw.location.trim() !== "") cleaned.location = raw.location.trim();
 
     const patch = updateEventSchema.parse(cleaned);
-    const event = await store.updateEventByNumber(command.event_number, patch);
-    return response(command.intent, { event });
+    const item = await store.updateEventByNumber(command.number, patch);
+    return response(command.intent, { item });
   }
   return response(command.intent, { items: await store.listItems(command.filters) });
 });

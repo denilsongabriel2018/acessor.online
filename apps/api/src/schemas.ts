@@ -94,52 +94,38 @@ export const commandSchema = z.discriminatedUnion("intent", [
     intent: z.literal("complete_task"),
     task_numbers: flexibleNumberList
   }),
+  // archive/delete/get/update sao unificados (item_type: "task" | "event")
+  // em vez de um par de intents por tipo - a API ja sabe rotear pro store
+  // certo, entao nao faz sentido duplicar isso no agente de IA/n8n como 8
+  // ferramentas quase identicas quando 4 bastam.
   z.object({
-    intent: z.literal("archive_task"),
-    task_numbers: flexibleNumberList
+    intent: z.literal("archive_item"),
+    item_type: z.enum(["task", "event"]),
+    numbers: flexibleNumberList
   }),
   z.object({
-    intent: z.literal("delete_task"),
-    task_numbers: flexibleNumberList
+    intent: z.literal("delete_item"),
+    item_type: z.enum(["task", "event"]),
+    numbers: flexibleNumberList
   }),
   z.object({
-    intent: z.literal("get_task"),
-    task_number: z.number().int().positive()
+    intent: z.literal("get_item"),
+    item_type: z.enum(["task", "event"]),
+    number: z.number().int().positive()
   }),
   z.object({
-    intent: z.literal("update_task"),
-    task_number: z.number().int().positive(),
-    // Campos soltos (nao usa updateTaskSchema aqui de proposito): a IA manda
-    // string vazia pra "nao mudei esse campo", e o server.ts filtra isso
-    // antes de validar de verdade com updateTaskSchema. Se validasse direto
-    // aqui, "" passaria e sobrescreveria o campo com vazio.
+    intent: z.literal("update_item"),
+    item_type: z.enum(["task", "event"]),
+    number: z.number().int().positive(),
+    // Campos soltos de tarefa e evento juntos (nao usa updateTaskSchema/
+    // updateEventSchema aqui de proposito): a IA manda string vazia pra "nao
+    // mudei esse campo", e o server.ts filtra isso e escolhe os campos certos
+    // pro item_type antes de validar de verdade.
     patch: z.object({
       title: z.string().optional(),
       description: z.string().optional(),
       dueAt: z.string().optional(),
-      priority: z.union([z.string(), z.number()]).optional()
-    })
-  }),
-  z.object({
-    intent: z.literal("archive_event"),
-    event_numbers: flexibleNumberList
-  }),
-  z.object({
-    intent: z.literal("delete_event"),
-    event_numbers: flexibleNumberList
-  }),
-  z.object({
-    intent: z.literal("get_event"),
-    event_number: z.number().int().positive()
-  }),
-  z.object({
-    intent: z.literal("update_event"),
-    event_number: z.number().int().positive(),
-    // Mesmo motivo do update_task: campos soltos, limpos no server.ts antes
-    // de validar com updateEventSchema de verdade.
-    patch: z.object({
-      title: z.string().optional(),
-      description: z.string().optional(),
+      priority: z.union([z.string(), z.number()]).optional(),
       startsAt: z.string().optional(),
       endsAt: z.string().optional(),
       location: z.string().optional()
