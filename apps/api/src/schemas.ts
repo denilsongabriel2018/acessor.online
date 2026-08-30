@@ -9,6 +9,22 @@ import { z } from "zod";
 const emptyToUndefined = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess((value) => (value === "" ? undefined : value), schema.optional());
 
+// A IA por vezes manda uma lista de numeros como string separada por virgula
+// (ex: "1,2") em vez de array de verdade ([1, 2]) - o formato exato do
+// function-calling nem sempre bate com o que pedimos na descricao do tool.
+// Aceita os dois formatos em vez de depender da IA acertar sempre.
+const flexibleNumberList = z.preprocess((value) => {
+  if (Array.isArray(value)) return value.map((item) => Number(item));
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((item) => Number(item.trim()))
+      .filter((item) => !Number.isNaN(item));
+  }
+  if (typeof value === "number") return [value];
+  return value;
+}, z.array(z.number().int().positive()).min(1));
+
 export const createTaskSchema = z.object({
   title: z.string().trim().min(1),
   description: emptyToUndefined(z.string().trim()),
@@ -76,15 +92,15 @@ export const commandSchema = z.discriminatedUnion("intent", [
   }),
   z.object({
     intent: z.literal("complete_task"),
-    task_numbers: z.array(z.number().int().positive()).min(1)
+    task_numbers: flexibleNumberList
   }),
   z.object({
     intent: z.literal("archive_task"),
-    task_numbers: z.array(z.number().int().positive()).min(1)
+    task_numbers: flexibleNumberList
   }),
   z.object({
     intent: z.literal("delete_task"),
-    task_numbers: z.array(z.number().int().positive()).min(1)
+    task_numbers: flexibleNumberList
   }),
   z.object({
     intent: z.literal("get_task"),
@@ -102,6 +118,31 @@ export const commandSchema = z.discriminatedUnion("intent", [
       description: z.string().optional(),
       dueAt: z.string().optional(),
       priority: z.union([z.string(), z.number()]).optional()
+    })
+  }),
+  z.object({
+    intent: z.literal("archive_event"),
+    event_numbers: flexibleNumberList
+  }),
+  z.object({
+    intent: z.literal("delete_event"),
+    event_numbers: flexibleNumberList
+  }),
+  z.object({
+    intent: z.literal("get_event"),
+    event_number: z.number().int().positive()
+  }),
+  z.object({
+    intent: z.literal("update_event"),
+    event_number: z.number().int().positive(),
+    // Mesmo motivo do update_task: campos soltos, limpos no server.ts antes
+    // de validar com updateEventSchema de verdade.
+    patch: z.object({
+      title: z.string().optional(),
+      description: z.string().optional(),
+      startsAt: z.string().optional(),
+      endsAt: z.string().optional(),
+      location: z.string().optional()
     })
   }),
   z.object({

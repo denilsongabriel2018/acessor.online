@@ -22,6 +22,7 @@ export type Task = {
 export type CalendarEvent = {
   id: string;
   workspaceId: string;
+  number: number;
   title: string;
   description?: string;
   status: EventStatus;

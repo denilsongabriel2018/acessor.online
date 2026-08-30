@@ -13,6 +13,7 @@ import type {
 
 const workspaceId = config.defaultWorkspaceId;
 let nextTaskNumber = 1;
+let nextEventNumber = 1;
 
 const nowIso = () => new Date().toISOString();
 const tasks: Task[] = [];
@@ -119,7 +120,7 @@ export const store = {
     return task;
   },
 
-  async createEvent(input: Omit<CalendarEvent, "id" | "workspaceId" | "status" | "createdAt" | "updatedAt">) {
+  async createEvent(input: Omit<CalendarEvent, "id" | "workspaceId" | "number" | "status" | "createdAt" | "updatedAt">) {
     if (config.storageDriver === "supabase") {
       return supabaseStore.createEvent(input);
     }
@@ -127,6 +128,7 @@ export const store = {
     const event: CalendarEvent = {
       id: randomUUID(),
       workspaceId,
+      number: nextEventNumber++,
       status: "scheduled",
       createdAt: nowIso(),
       updatedAt: nowIso(),
@@ -258,6 +260,76 @@ export const store = {
     events.splice(index, 1);
     await store.clearPendingNotifications("event", id);
     return true;
+  },
+
+  async archiveEvents(numbers: number[]) {
+    if (config.storageDriver === "supabase") {
+      return supabaseStore.archiveEvents(numbers);
+    }
+
+    const archived: CalendarEvent[] = [];
+    const notFound: number[] = [];
+
+    for (const number of numbers) {
+      const event = events.find((item) => item.number === number && item.status !== "cancelled");
+      if (!event) {
+        notFound.push(number);
+        continue;
+      }
+      event.status = "archived";
+      event.updatedAt = nowIso();
+      await store.clearPendingNotifications("event", event.id);
+      archived.push(event);
+    }
+
+    return { archived, notFound };
+  },
+
+  async deleteEvents(numbers: number[]) {
+    if (config.storageDriver === "supabase") {
+      return supabaseStore.deleteEvents(numbers);
+    }
+
+    const deleted: number[] = [];
+    const notFound: number[] = [];
+
+    for (const number of numbers) {
+      const index = events.findIndex((item) => item.number === number);
+      if (index === -1) {
+        notFound.push(number);
+        continue;
+      }
+      const [event] = events.splice(index, 1);
+      await store.clearPendingNotifications("event", event.id);
+      deleted.push(number);
+    }
+
+    return { deleted, notFound };
+  },
+
+  async getEventByNumber(number: number) {
+    if (config.storageDriver === "supabase") {
+      return supabaseStore.getEventByNumber(number);
+    }
+    return events.find((item) => item.number === number);
+  },
+
+  async updateEventByNumber(
+    number: number,
+    patch: Partial<Pick<CalendarEvent, "title" | "description" | "startsAt" | "endsAt" | "location">>
+  ) {
+    if (config.storageDriver === "supabase") {
+      return supabaseStore.updateEventByNumber(number, patch);
+    }
+
+    const event = events.find((item) => item.number === number && item.status !== "cancelled");
+    if (!event) return undefined;
+    Object.assign(event, patch, { updatedAt: nowIso() });
+    if (patch.startsAt !== undefined) {
+      await store.clearPendingNotifications("event", event.id);
+      await store.scheduleNotificationsForItem("event", event.id, event.startsAt, event.notificationPolicyId);
+    }
+    return event;
   },
 
   async completeTasks(numbers: number[]) {
@@ -548,6 +620,7 @@ function mapEvent(row: Record<string, unknown>): CalendarEvent {
   return {
     id: String(row.id),
     workspaceId: String(row.workspace_id),
+    number: Number(row.number),
     title: String(row.title),
     description: row.description ? String(row.description) : undefined,
     status: row.status as CalendarEvent["status"],
@@ -614,12 +687,23 @@ const supabaseStore = {
     return task;
   },
 
-  async createEvent(input: Omit<CalendarEvent, "id" | "workspaceId" | "status" | "createdAt" | "updatedAt">) {
+  async createEvent(input: Omit<CalendarEvent, "id" | "workspaceId" | "number" | "status" | "createdAt" | "updatedAt">) {
     const supabase = createSupabaseAdmin();
+    const { data: latest, error: latestError } = await supabase
+      .from("events")
+      .select("number")
+      .eq("workspace_id", workspaceId)
+      .order("number", { ascending: false })
+      .limit(1);
+
+    if (latestError) throw latestError;
+    const number = Number(latest?.[0]?.number || 0) + 1;
+
     const { data, error } = await supabase
       .from("events")
       .insert({
         workspace_id: workspaceId,
+        number,
         title: input.title,
         description: input.description,
         starts_at: input.startsAt,
@@ -929,6 +1013,108 @@ const supabaseStore = {
     if (error) throw error;
     await store.clearPendingNotifications("event", id);
     return true;
+  },
+
+  async archiveEvents(numbers: number[]) {
+    const supabase = createSupabaseAdmin();
+    const updatedAt = nowIso();
+    const { data: found, error: findError } = await supabase
+      .from("events")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .in("number", numbers)
+      .neq("status", "cancelled");
+
+    if (findError) throw findError;
+
+    const foundNumbers = new Set((found || []).map((event) => Number(event.number)));
+    const notFound = numbers.filter((number) => !foundNumbers.has(number));
+
+    const { data: updated, error: updateError } = await supabase
+      .from("events")
+      .update({ status: "archived", updated_at: updatedAt })
+      .eq("workspace_id", workspaceId)
+      .in("number", [...foundNumbers])
+      .select("*");
+
+    if (updateError) throw updateError;
+
+    for (const event of updated || []) {
+      await store.clearPendingNotifications("event", String(event.id));
+    }
+
+    return { archived: (updated || []).map(mapEvent), notFound };
+  },
+
+  async deleteEvents(numbers: number[]) {
+    const supabase = createSupabaseAdmin();
+    const { data: found, error: findError } = await supabase
+      .from("events")
+      .select("id, number")
+      .eq("workspace_id", workspaceId)
+      .in("number", numbers);
+
+    if (findError) throw findError;
+
+    const foundNumbers = new Set((found || []).map((event) => Number(event.number)));
+    const notFound = numbers.filter((number) => !foundNumbers.has(number));
+
+    const { error: deleteError } = await supabase
+      .from("events")
+      .delete()
+      .eq("workspace_id", workspaceId)
+      .in("number", [...foundNumbers]);
+
+    if (deleteError) throw deleteError;
+
+    for (const event of found || []) {
+      await store.clearPendingNotifications("event", String(event.id));
+    }
+
+    return { deleted: [...foundNumbers], notFound };
+  },
+
+  async getEventByNumber(number: number) {
+    const supabase = createSupabaseAdmin();
+    const { data, error } = await supabase
+      .from("events")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("number", number)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapEvent(data) : undefined;
+  },
+
+  async updateEventByNumber(
+    number: number,
+    patch: Partial<Pick<CalendarEvent, "title" | "description" | "startsAt" | "endsAt" | "location">>
+  ) {
+    const supabase = createSupabaseAdmin();
+    const dbPatch: Record<string, unknown> = { updated_at: nowIso() };
+    if (patch.title !== undefined) dbPatch.title = patch.title;
+    if (patch.description !== undefined) dbPatch.description = patch.description;
+    if (patch.startsAt !== undefined) dbPatch.starts_at = patch.startsAt;
+    if (patch.endsAt !== undefined) dbPatch.ends_at = patch.endsAt;
+    if (patch.location !== undefined) dbPatch.location = patch.location;
+
+    const { data, error } = await supabase
+      .from("events")
+      .update(dbPatch)
+      .eq("workspace_id", workspaceId)
+      .eq("number", number)
+      .neq("status", "cancelled")
+      .select("*")
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return undefined;
+    const event = mapEvent(data);
+    if (patch.startsAt !== undefined) {
+      await store.clearPendingNotifications("event", event.id);
+      await store.scheduleNotificationsForItem("event", event.id, event.startsAt, event.notificationPolicyId);
+    }
+    return event;
   },
 
   async listItems(filters: {

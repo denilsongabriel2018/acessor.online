@@ -151,6 +151,29 @@ app.post("/api/commands", async (request, reply) => {
     const task = await store.updateTaskByNumber(command.task_number, patch);
     return response(command.intent, { task });
   }
+  if (command.intent === "archive_event") {
+    return response(command.intent, await store.archiveEvents(command.event_numbers));
+  }
+  if (command.intent === "delete_event") {
+    return response(command.intent, await store.deleteEvents(command.event_numbers));
+  }
+  if (command.intent === "get_event") {
+    const event = await store.getEventByNumber(command.event_number);
+    return response(command.intent, { event });
+  }
+  if (command.intent === "update_event") {
+    const raw = command.patch;
+    const cleaned: Record<string, unknown> = {};
+    if (typeof raw.title === "string" && raw.title.trim() !== "") cleaned.title = raw.title.trim();
+    if (typeof raw.description === "string" && raw.description.trim() !== "") cleaned.description = raw.description.trim();
+    if (typeof raw.startsAt === "string" && raw.startsAt.trim() !== "") cleaned.startsAt = raw.startsAt;
+    if (typeof raw.endsAt === "string" && raw.endsAt.trim() !== "") cleaned.endsAt = raw.endsAt;
+    if (typeof raw.location === "string" && raw.location.trim() !== "") cleaned.location = raw.location.trim();
+
+    const patch = updateEventSchema.parse(cleaned);
+    const event = await store.updateEventByNumber(command.event_number, patch);
+    return response(command.intent, { event });
+  }
   return response(command.intent, { items: await store.listItems(command.filters) });
 });
 
