@@ -49,6 +49,33 @@ async function callNotificationWebhook(payload: Record<string, unknown>): Promis
   }
 }
 
+// Quando varios avisos do MESMO tipo pro MESMO item ficam devidos ao mesmo
+// tempo (ex: item criado perto demais do prazo, ou o agendador ficou parado
+// um tempo e "5, 10, 15, 25 minutos antes" venceram juntos), so o mais
+// proximo do agora faz sentido mandar - os mais antigos foram ultrapassados
+// pelo mais novo e so gerariam uma rajada de mensagens repetindo a mesma
+// coisa. Agrupa por item+tipo de aviso e so processa o mais recente de cada
+// grupo; o resto vira "skipped" direto, sem chamar o n8n.
+function keepMostRecentPerGroup(due: ScheduledNotification[]): { toProcess: ScheduledNotification[]; superseded: ScheduledNotification[] } {
+  const groups = new Map<string, ScheduledNotification[]>();
+  for (const notification of due) {
+    const key = `${notification.itemType}:${notification.itemId}:${notification.notificationKind}`;
+    const group = groups.get(key);
+    if (group) group.push(notification);
+    else groups.set(key, [notification]);
+  }
+
+  const toProcess: ScheduledNotification[] = [];
+  const superseded: ScheduledNotification[] = [];
+  for (const group of groups.values()) {
+    group.sort((a, b) => new Date(b.scheduledFor).getTime() - new Date(a.scheduledFor).getTime());
+    toProcess.push(group[0]);
+    superseded.push(...group.slice(1));
+  }
+
+  return { toProcess, superseded };
+}
+
 // O "tick": busca tudo que esta pendente e cuja hora ja chegou, processa um
 // por um, marca o resultado. E chamado tanto pelo timer (startScheduler)
 // quanto manualmente (util pra testar sem esperar o relogio andar).
@@ -56,7 +83,13 @@ export async function processDueNotifications() {
   const due = await store.listDueNotifications();
   const results: { notification: ScheduledNotification; outcome: string }[] = [];
 
-  for (const notification of due) {
+  const { toProcess, superseded } = keepMostRecentPerGroup(due);
+  for (const notification of superseded) {
+    await store.markNotification(notification.id, "skipped");
+    results.push({ notification, outcome: "skipped (substituido por um aviso mais recente do mesmo item)" });
+  }
+
+  for (const notification of toProcess) {
     const item =
       notification.itemType === "task"
         ? await store.getTaskById(notification.itemId)
