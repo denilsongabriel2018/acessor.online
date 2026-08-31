@@ -234,19 +234,26 @@ function Dashboard({ session }: { session: Session | null }) {
   const titleInputRef = useRef<HTMLInputElement>(null);
   const [focusDate, setFocusDate] = useState(new Date());
   const [miniCalCursor, setMiniCalCursor] = useState(new Date());
+  // Clique no mini-calendario: 1o clique seleciona um dia so; se o usuario
+  // clicar em outro dia logo em seguida (sem soltar essa selecao pendente),
+  // o segundo clique vira o fim do intervalo. Um 3o clique comeca de novo.
+  const [rangeStart, setRangeStart] = useState<Date | null>(null);
   const [policies, setPolicies] = useState<NotificationPolicy[]>([]);
   const [policiesLoaded, setPoliciesLoaded] = useState(false);
   const [policiesLoading, setPoliciesLoading] = useState(false);
   const [policyFilter, setPolicyFilter] = useState("");
+  // Aba "Lista" tem seu proprio recorte de periodo, independente do periodo
+  // da Agenda - "all" (padrao) busca tudo, sem filtro de data nenhum.
+  const [listRange, setListRange] = useState<"all" | "today" | "week" | "month">("all");
 
-  async function loadItems(overrideStart?: string, overrideEnd?: string) {
+  async function loadItems(overrideStart?: string, overrideEnd?: string, opts?: { noPeriod?: boolean }) {
     setLoading(true);
     setError("");
-    const params = new URLSearchParams({
-      type: itemType,
-      period_start: dateTimeIso(overrideStart ?? startDate, "00:00"),
-      period_end: dateTimeIso(overrideEnd ?? endDate, "23:59")
-    });
+    const params = new URLSearchParams({ type: itemType });
+    if (!opts?.noPeriod) {
+      params.set("period_start", dateTimeIso(overrideStart ?? startDate, "00:00"));
+      params.set("period_end", dateTimeIso(overrideEnd ?? endDate, "23:59"));
+    }
     if (status) params.set("status", status);
     if (priority) params.set("priority", priority);
     if (query.trim()) params.set("q", query.trim());
@@ -260,6 +267,14 @@ function Dashboard({ session }: { session: Session | null }) {
     } finally {
       setLoading(false);
     }
+  }
+
+  function loadListItems(range: typeof listRange) {
+    if (range === "all") return loadItems(undefined, undefined, { noPeriod: true });
+    const end = new Date();
+    if (range === "week") end.setDate(end.getDate() + 7);
+    if (range === "month") end.setMonth(end.getMonth() + 1);
+    return loadItems(toInputDate(new Date()), toInputDate(end));
   }
 
   async function loadPolicies() {
@@ -409,6 +424,7 @@ function Dashboard({ session }: { session: Session | null }) {
   }
 
   function changeAgendaMode(nextMode: AgendaMode) {
+    setRangeStart(null);
     setAgendaMode(nextMode);
     const nextPeriod = applyPeriodPreset(nextMode, focusDate);
     setStartDate(nextPeriod.startDate);
@@ -417,6 +433,7 @@ function Dashboard({ session }: { session: Session | null }) {
   }
 
   function navigateAgenda(step: number) {
+    setRangeStart(null);
     const next = new Date(focusDate);
     if (agendaMode === "day") next.setDate(next.getDate() + step);
     else if (agendaMode === "month") {
@@ -436,6 +453,7 @@ function Dashboard({ session }: { session: Session | null }) {
   }
 
   function goToday() {
+    setRangeStart(null);
     const now = new Date();
     setFocusDate(now);
     setMiniCalCursor(now);
@@ -446,7 +464,25 @@ function Dashboard({ session }: { session: Session | null }) {
   }
 
   function selectMiniCalDay(day: Date) {
-    setView("agenda");
+    if (rangeStart) {
+      // Segundo clique: fecha o intervalo entre o dia guardado e esse.
+      const start = rangeStart < day ? rangeStart : day;
+      const end = rangeStart < day ? day : rangeStart;
+      setRangeStart(null);
+      setAgendaMode("week"); // "week" so reusa a grade de horas p/ N dias - nao fica preso a 7 dias
+      setFocusDate(start);
+      setMiniCalCursor(start);
+      const startDateStr = toInputDate(start);
+      const endDateStr = toInputDate(end);
+      setStartDate(startDateStr);
+      setEndDate(endDateStr);
+      loadItems(startDateStr, endDateStr);
+      return;
+    }
+
+    // Primeiro clique: seleciona o dia sozinho, mas deixa marcado como
+    // possivel inicio de um intervalo caso o usuario clique em outro dia.
+    setRangeStart(day);
     setAgendaMode("day");
     setFocusDate(day);
     setMiniCalCursor(day);
@@ -460,12 +496,20 @@ function Dashboard({ session }: { session: Session | null }) {
     if (agendaMode === "day") {
       return capitalizeFirst(focusDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" }));
     }
+    if (agendaMode === "week" && calendarDays.length !== 7) {
+      const fmt = (d: Date) => d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+      return `${fmt(calendarDays[0])} - ${fmt(calendarDays[calendarDays.length - 1])}`;
+    }
     return capitalizeFirst(focusDate.toLocaleDateString("pt-BR", { month: "long", year: "numeric" }));
   }
 
   useEffect(() => {
-    loadItems();
-  }, [itemType, status]);
+    if (view === "list") {
+      loadListItems(listRange);
+    } else if (view === "agenda" || view === "tasks") {
+      loadItems();
+    }
+  }, [view, itemType, status, listRange]);
 
   useEffect(() => {
     if (view === "automations" && !policiesLoaded) {
@@ -501,7 +545,13 @@ function Dashboard({ session }: { session: Session | null }) {
             titleInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
           }}
         />
-        <MiniCalendar cursor={miniCalCursor} onCursorChange={setMiniCalCursor} selectedDate={focusDate} onSelectDay={selectMiniCalDay} />
+        <MiniCalendar
+          cursor={miniCalCursor}
+          onCursorChange={setMiniCalCursor}
+          selectedDate={focusDate}
+          rangeStart={rangeStart}
+          onSelectDay={selectMiniCalDay}
+        />
         <nav>
           <NavButton active={view === "agenda"} icon={<CalendarDays size={18} />} label="Agenda" onClick={() => setView("agenda")} />
           <NavButton active={view === "tasks"} icon={<ListChecks size={18} />} label="Tarefas" onClick={() => setView("tasks")} />
@@ -588,6 +638,22 @@ function Dashboard({ session }: { session: Session | null }) {
           <ItemsListView
             items={items}
             loading={loading}
+            periodFilter={
+              <div className="view-tabs">
+                <button type="button" className={listRange === "all" ? "selected" : ""} onClick={() => setListRange("all")}>
+                  Tudo
+                </button>
+                <button type="button" className={listRange === "today" ? "selected" : ""} onClick={() => setListRange("today")}>
+                  Hoje
+                </button>
+                <button type="button" className={listRange === "week" ? "selected" : ""} onClick={() => setListRange("week")}>
+                  Semana
+                </button>
+                <button type="button" className={listRange === "month" ? "selected" : ""} onClick={() => setListRange("month")}>
+                  Mes
+                </button>
+              </div>
+            }
             onComplete={completeTask}
             onEditTitle={editItemTitle}
             onEditDescription={editItemDescription}
@@ -994,11 +1060,13 @@ function MiniCalendar({
   cursor,
   onCursorChange,
   selectedDate,
+  rangeStart,
   onSelectDay
 }: {
   cursor: Date;
   onCursorChange: (next: Date) => void;
   selectedDate: Date;
+  rangeStart: Date | null;
   onSelectDay: (day: Date) => void;
 }) {
   const year = cursor.getFullYear();
@@ -1008,6 +1076,7 @@ function MiniCalendar({
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const todayKey = dateKey(new Date());
   const selectedKey = dateKey(selectedDate);
+  const rangeStartKey = rangeStart ? dateKey(rangeStart) : "";
 
   const cells: (Date | null)[] = [];
   for (let index = 0; index < leading; index += 1) cells.push(null);
@@ -1033,7 +1102,13 @@ function MiniCalendar({
         {cells.map((day, index) => {
           if (!day) return <span key={`blank-${index}`} />;
           const key = dateKey(day);
-          const classes = [key === todayKey ? "today" : "", key === selectedKey ? "selected" : ""].filter(Boolean).join(" ");
+          const classes = [
+            key === todayKey ? "today" : "",
+            key === selectedKey ? "selected" : "",
+            key === rangeStartKey ? "range-anchor" : ""
+          ]
+            .filter(Boolean)
+            .join(" ");
           return (
             <button type="button" key={key} className={classes} onClick={() => onSelectDay(day)}>
               {day.getDate()}
@@ -1198,6 +1273,7 @@ function HourGrid({ days, items }: { days: Date[]; items: Item[] }) {
 function ItemsListView({
   items,
   loading,
+  periodFilter,
   onComplete,
   onEditTitle,
   onEditDescription,
@@ -1209,6 +1285,7 @@ function ItemsListView({
 }: {
   items: Item[];
   loading: boolean;
+  periodFilter: React.ReactNode;
   onComplete: (id: string) => void;
   onEditTitle: (item: Item) => void;
   onEditDescription: (item: Item) => void;
@@ -1223,6 +1300,7 @@ function ItemsListView({
   return (
     <section className="sheet-panel">
       <div className="view-toolbar">
+        {periodFilter}
         <span>
           {rows.length} item{rows.length === 1 ? "" : "s"} no recorte atual
         </span>

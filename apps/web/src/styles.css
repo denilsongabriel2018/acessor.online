@@ -981,6 +981,12 @@ label {
   font-weight: 700;
 }
 
+.mini-cal-grid button.range-anchor {
+  border: 1px dashed var(--color-primary);
+  color: var(--color-primary-hover);
+  font-weight: 700;
+}
+
 /* ---------- Date navigation (topbar, agenda view) ---------- */
 
 .date-nav {
